@@ -28,6 +28,9 @@ import { detectFolderConductor } from './folderConductor'
 import { DisclosureChevron, FOLDER_BODY_CLS, FOLDER_BODY_OPEN_PADDING, FOLDER_ROW_STICKY_Z, PinnedSessionDivider, isOpenInTabModifierClick } from './chrome'
 import type { LaneRows } from './laneRows'
 import type { SidebarScope } from './scope'
+import { offlineMenuRow } from './offlineMenuRow'
+import OfflineMenuReason from '../../components/OfflineMenuReason'
+import { offlineProps } from '../../utils/offline'
 
 /** The folder block renderers for one shell render. */
 export function createFolderBlocks(shell: SidebarScope & LaneRows) {
@@ -38,7 +41,7 @@ export function createFolderBlocks(shell: SidebarScope & LaneRows) {
     hiddenByContainer, hideEmptyFolderBody, ime, instantCloseId, isActiveRow, isFolderFilteredOut,
     isFolderHidden, listNarrowed, moveFolderTo, onMenuCloseAutoFocus, onOpenSlotInNewTab, onSelectSlot,
     pinned, renameCommit, renderSessionRow, renderStaleSection, revealFlash, revealedContainers,
-    searchRanked, setEditName, setEditScope, setEditingId, setFolderCreateError, setFolderModal, sidebarRows,
+    searchRanked, setEditName, setEditScope, setEditingId, setFolderCreateError, setFolderModal, setFolderOfflineNotice, sidebarRows,
     slotFilter, slotFolders, splitStale, staleExpanded, startsAutomaticSection, suppressMenuRestoreRef,
     toggleCollapse, toggleFolderFilter, toggleReveal, unreadSet, updateFolderMutation } = shell
   /**
@@ -235,10 +238,10 @@ export function createFolderBlocks(shell: SidebarScope & LaneRows) {
          *  scoped out): a menu closes on select, and Radix keyboard
          *  activation synthesizes a modifier-free click, so the
          *  gesture would be mouse-only and undiscoverable. */}
-        <Item className="items-start" data-testid={tid('new-incognito')} onClick={() => { createChatInFolder(folder.id, { memoryMode: 'incognito' }) }}>
+        <Item className="items-start" data-testid={tid('new-incognito')} {...offlineMenuRow(connected, i18nT('utils.offline.create_sessions'), i18nT('pages.chatSidebar.new_incognito_chat'), () => { createChatInFolder(folder.id, { memoryMode: 'incognito' }) })}>
           <PrivateChatRow kind="incognito" />
         </Item>
-        <Item className="items-start" data-testid={tid('new-temporary')} onClick={() => { createChatInFolder(folder.id, { memoryMode: 'temporary' }) }}>
+        <Item className="items-start" data-testid={tid('new-temporary')} {...offlineMenuRow(connected, i18nT('utils.offline.create_sessions'), i18nT('pages.chatSidebar.new_temporary_chat'), () => { createChatInFolder(folder.id, { memoryMode: 'temporary' }) })}>
           <PrivateChatRow kind="temporary" />
         </Item>
       </>
@@ -292,8 +295,8 @@ export function createFolderBlocks(shell: SidebarScope & LaneRows) {
             </span>
           </Item>
         )}
-        <Item data-testid={tid('rename')} onClick={() => { suppressMenuRestoreRef.current = true; setEditingId(folder.id); setEditScope('list'); setEditName(folder.name) }}><Pencil size={13} /> {i18nT('pages.chatSidebar.rename')}</Item>
-        <Item data-testid={tid('new-subfolder')} onClick={() => { setFolderModal({ mode: 'create', parentId: folder.id }) }}><FolderPlus size={13} /> {i18nT('pages.chatSidebar.new_subfolder')}</Item>
+        <Item data-testid={tid('rename')} {...offlineMenuRow(connected, i18nT('utils.offline.rename_folders'), i18nT('pages.chatSidebar.rename'), () => { suppressMenuRestoreRef.current = true; setEditingId(folder.id); setEditScope('list'); setEditName(folder.name) })}><Pencil size={13} /> {i18nT('pages.chatSidebar.rename')}</Item>
+        <Item data-testid={tid('new-subfolder')} {...offlineMenuRow(connected, i18nT('utils.offline.create_folders'), i18nT('pages.chatSidebar.new_subfolder'), () => { setFolderModal({ mode: 'create', parentId: folder.id }) })}><FolderPlus size={13} /> {i18nT('pages.chatSidebar.new_subfolder')}</Item>
         {/* The two private modes are listed flat, each naming its own action
          *  and what it does with memory. A grouping caption read as a button
          *  at phone width and named the pair with a word no other surface
@@ -307,8 +310,11 @@ export function createFolderBlocks(shell: SidebarScope & LaneRows) {
         <FolderMoveSubmenu variant={variant} label={i18nT('pages.chatSidebar.move_folder_to')} sortMode={folderSortMode}
           folders={reparentTargets}
           currentFolderId={folder.parent_id || null}
+          // Dimmed with its siblings; `moveFolderTo` refuses the pick at the sink.
+          offline={!connected}
+          offlineTitle={i18nT('utils.offline.gateway_offline_reconnect', { action: i18nT('utils.offline.move_folders') })}
           onPick={pid => moveFolderTo(folder.id, pid)} />
-        <Item data-testid={tid('settings')} onClick={() => { setFolderModal({ mode: 'edit', folderId: folder.id }) }}><Settings size={13} /> {i18nT('components.folderConfigModal.folder_settings')}</Item>
+        <Item data-testid={tid('settings')} {...offlineMenuRow(connected, i18nT('utils.offline.change_folder_settings'), i18nT('components.folderConfigModal.folder_settings'), () => { setFolderModal({ mode: 'edit', folderId: folder.id }) })}><Settings size={13} /> {i18nT('components.folderConfigModal.folder_settings')}</Item>
         {/* Hide this folder from the session lists (flat lane + tree).
          *  Same state the filter menu's checkboxes drive, reached from the
          *  folder itself — which is where the user is looking when they
@@ -320,10 +326,12 @@ export function createFolderBlocks(shell: SidebarScope & LaneRows) {
             : <><EyeOff size={13} /> {i18nT('pages.chatSidebar.hide_folder')}</>}
         </Item>
         {folderOffersHide(folder, foldersWithActiveSubtree) && (
-          <Item data-testid={tid('hide')} onClick={() => { updateFolderMutation.mutate({ id: folder.id, body: { hidden: true } }) }}><EyeOff size={13} /> {i18nT('pages.chatSidebar.hide_when_empty')}</Item>
+          <Item data-testid={tid('hide')} {...offlineMenuRow(connected, i18nT('utils.offline.hide_folders'), i18nT('pages.chatSidebar.hide_when_empty'), () => { updateFolderMutation.mutate({ id: folder.id, body: { hidden: true } }) })}><EyeOff size={13} /> {i18nT('pages.chatSidebar.hide_when_empty')}</Item>
         )}
         <Separator />
-        <Item className="text-danger focus:text-danger" data-testid={tid('delete')} onClick={() => { deleteFolderWithConfirm(folder) }}><X size={13} /> {i18nT('pages.chatSidebar.delete_folder')}</Item>
+        <Item className="text-danger focus:text-danger" data-testid={tid('delete')} {...offlineMenuRow(connected, i18nT('utils.offline.delete_folders'), i18nT('pages.chatSidebar.delete_folder'), () => { deleteFolderWithConfirm(folder) })}><X size={13} /> {i18nT('pages.chatSidebar.delete_folder')}</Item>
+        {/* Last, so its mount on disconnect shifts no row under the pointer. */}
+        <OfflineMenuReason testId={ctx ? 'folder-offline-reason-ctx' : 'folder-offline-reason'} />
       </>
     )
   }
@@ -525,7 +533,7 @@ export function createFolderBlocks(shell: SidebarScope & LaneRows) {
                *  nothing to mark — are untouched, and that difference is itself the
                *  cue: the marked row is the one that explains the result. */}
               {/* eslint-disable-next-line jsx-a11y/no-static-element-interactions */}
-              <span className="flex-1 text-[13px] font-medium text-text truncate text-left" title={i18nT('pages.chatSidebar.double_click_to_rename')} onDoubleClick={e => { e.stopPropagation(); setEditingId(folder.id); setEditScope('list'); setEditName(folder.name) }}>{highlightText(folderNameText(folder), slotFilter.trim(), false, -1)}</span>
+              <span className="flex-1 text-[13px] font-medium text-text truncate text-left" title={i18nT('pages.chatSidebar.double_click_to_rename')} {...offlineProps(connected, i18nT('utils.offline.rename_folders'))} onDoubleClick={e => { e.stopPropagation(); if (!connected) { setFolderOfflineNotice(i18nT('utils.offline.gateway_offline_reconnect', { action: i18nT('utils.offline.rename_folders') })); return } setEditingId(folder.id); setEditScope('list'); setEditName(folder.name) }}>{highlightText(folderNameText(folder), slotFilter.trim(), false, -1)}</span>
               {/* Channel-owned folder (created by per-channel session filing):
                *  show the channel's brand mark so the folder reads as "these are
                *  the Discord conversations" at a glance. Guarded the same way the
@@ -585,7 +593,7 @@ export function createFolderBlocks(shell: SidebarScope & LaneRows) {
            *  creates and switches; Cmd/Ctrl-click and middle-click create the
            *  session as a background TAB. Gated on `onOpenSlotInNewTab` --
            *  embedded hosts have no tab strip, so the modifier is ignored. */}
-          <button type="button" data-testid={`folder-new-chat-${folder.id}`} className="cursor-pointer p-[4px] rounded text-muted hover:text-accent hover:bg-bg-hover transition-all bg-transparent border-none" title={i18nT('pages.chatSidebar.new_chat_in_name', { name: folder.name })} aria-label={i18nT('pages.chatSidebar.new_chat_in_name', { name: folder.name })}
+          <button type="button" data-testid={`folder-new-chat-${folder.id}`} className="cursor-pointer p-[4px] rounded text-muted hover:text-accent hover:bg-bg-hover transition-all bg-transparent border-none" title={i18nT('pages.chatSidebar.new_chat_in_name', { name: folder.name })} aria-label={i18nT('pages.chatSidebar.new_chat_in_name', { name: folder.name })} {...offlineProps(connected, i18nT('utils.offline.create_sessions'), i18nT('pages.chatSidebar.new_chat_in_name', { name: folder.name }))}
             onMouseDownCapture={onOpenSlotInNewTab ? (e => { if (e.button === 1) e.preventDefault() }) : undefined}
             onAuxClick={onOpenSlotInNewTab ? (e => {
               if (e.button !== 1) return
@@ -930,7 +938,7 @@ export function createFolderBlocks(shell: SidebarScope & LaneRows) {
             createChatInFolder(folder.id, { inNewTab: true })
           }) : undefined}
           onClick={e => createChatInFolder(folder.id, { inNewTab: !!onOpenSlotInNewTab && isOpenInTabModifierClick(e) })}
-          title={i18nT('pages.chatSidebar.new_chat_in_name', { name: folder.name })} aria-label={i18nT('pages.chatSidebar.new_chat_in_name', { name: folder.name })}
+          title={i18nT('pages.chatSidebar.new_chat_in_name', { name: folder.name })} aria-label={i18nT('pages.chatSidebar.new_chat_in_name', { name: folder.name })} {...offlineProps(connected, i18nT('utils.offline.create_sessions'), i18nT('pages.chatSidebar.new_chat_in_name', { name: folder.name }))}
           className="w-full flex items-center gap-2.5 pl-3.5 pr-3 py-2 rounded-md text-[12px] text-muted hover:text-accent hover:bg-bg-hover transition-all bg-transparent border-none cursor-pointer text-left">
           <span>{i18nT('pages.chatSidebar.new_chat_in_name', { name: folder.name })}</span><MessageSquarePlus size={13} className="shrink-0 ml-auto" />
         </button>

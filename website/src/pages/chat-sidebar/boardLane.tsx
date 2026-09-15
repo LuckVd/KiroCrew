@@ -31,12 +31,15 @@ import { BOARD_FOLDER_BODY_CLS, FOLDER_BODY_OPEN_PADDING, PinnedSessionDivider, 
 import type { LaneRows } from './laneRows'
 import type { FolderBlocks } from './folderBlocks'
 import type { SidebarScope } from './scope'
+import { offlineMenuRow } from './offlineMenuRow'
+import OfflineMenuReason from '../../components/OfflineMenuReason'
+import { offlineProps } from '../../utils/offline'
 
 /** The board lane renderer for one shell render. */
 export function createBoardLane(shell: SidebarScope & LaneRows & FolderBlocks) {
   const { activeDrag, addColumnAfterMutation, attachStripEdges, boardError, boardFolderCollapsed,
     boardPeerCount, closeColumnPopover, columnEditId, columnMatches, columnPopoverImeLatch, columnPopoverRef,
-    createChatInFolder, deleteColumnWithConfirm, deleteFolderWithConfirm, derivedHintCol, dndSensors,
+    connected, createChatInFolder, deleteColumnWithConfirm, deleteFolderWithConfirm, derivedHintCol, dndSensors,
     dropSlotMutation, editName, editScope, editingId, flatView, folderCompare, folderCreateError,
     folderCreateMountAbsent, folderDragWithheld, folderEditInputRef, folderReorderable, folderSortMode,
     folderSubtrees, folders, handleSidebarDragCancel, handleSidebarDragEnd, handleSidebarDragStart, heldLane,
@@ -44,7 +47,7 @@ export function createBoardLane(shell: SidebarScope & LaneRows & FolderBlocks) {
     moveFolderTo, nativeSessionDrag, onMenuCloseAutoFocus, onOpenSlotInNewTab, orderedColumns, popoverPos,
     renameCommit, renderFolderCreateError, renderSessionRow, reorderColumnsMutation, reportDndActive,
     revealFlash, rootFolders, setBoardError, setColumnEditId, setDerivedHintCol, setEditName, setEditScope,
-    setEditingId, setFilterSortOpen, setFolderModal, setFoldersShelved, sidebarRows, slotFolders,
+    setEditingId, setFilterSortOpen, setFolderModal, setFolderOfflineNotice, setFoldersShelved, sidebarRows, slotFolders,
     startsAutomaticSection, stripEdges, suppressMenuRestoreRef, tagById, toggleColumnCollapse,
     updateColumnMutation } = shell
   // Does any descendant (direct or nested) of `folderId` contain a slot from `slots`?
@@ -202,7 +205,7 @@ export function createBoardLane(shell: SidebarScope & LaneRows & FolderBlocks) {
             // Double-click rename is a mouse-only power shortcut; the accessible
             // path is the ⋯-menu Rename item, so scope-disable the interaction rule.
             // eslint-disable-next-line jsx-a11y/no-static-element-interactions
-            <span className="flex-1 truncate" title={i18nT('pages.chatSidebar.double_click_to_rename')} onDoubleClick={e => { e.stopPropagation(); setEditingId(folder.id); setEditScope(columnId); setEditName(folder.name) }}>{folder.name}</span>
+            <span className="flex-1 truncate" title={i18nT('pages.chatSidebar.double_click_to_rename')} {...offlineProps(connected, i18nT('utils.offline.rename_folders'))} onDoubleClick={e => { e.stopPropagation(); if (!connected) { setFolderOfflineNotice(i18nT('utils.offline.gateway_offline_reconnect', { action: i18nT('utils.offline.rename_folders') })); return } setEditingId(folder.id); setEditScope(columnId); setEditName(folder.name) }}>{folder.name}</span>
           )}
           <span className="text-[10px] text-muted shrink-0">{count}</span>
           {/* List-view parity: an empty folder's row keeps its action cluster
@@ -219,31 +222,34 @@ export function createBoardLane(shell: SidebarScope & LaneRows & FolderBlocks) {
                 </button>
               </DropdownMenuTrigger>
               <DropdownMenuContent align="start" className="min-w-[180px]" onClick={e => e.stopPropagation()} onCloseAutoFocus={onMenuCloseAutoFocus}>
-                <DropdownMenuItem onClick={() => { suppressMenuRestoreRef.current = true; setEditingId(folder.id); setEditScope(columnId); setEditName(folder.name) }}><Pencil size={13} /> {i18nT('pages.chatSidebar.rename')}</DropdownMenuItem>
-                <DropdownMenuItem data-testid={`col-${columnId}-folder-${folder.id}-new-sub`} onClick={() => { setFolderModal({ mode: 'create', parentId: folder.id }) }}><FolderPlus size={13} /> {i18nT('pages.chatSidebar.new_subfolder')}</DropdownMenuItem>
+                <DropdownMenuItem {...offlineMenuRow(connected, i18nT('utils.offline.rename_folders'), i18nT('pages.chatSidebar.rename'), () => { suppressMenuRestoreRef.current = true; setEditingId(folder.id); setEditScope(columnId); setEditName(folder.name) })}><Pencil size={13} /> {i18nT('pages.chatSidebar.rename')}</DropdownMenuItem>
+                <DropdownMenuItem data-testid={`col-${columnId}-folder-${folder.id}-new-sub`} {...offlineMenuRow(connected, i18nT('utils.offline.create_folders'), i18nT('pages.chatSidebar.new_subfolder'), () => { setFolderModal({ mode: 'create', parentId: folder.id }) })}><FolderPlus size={13} /> {i18nT('pages.chatSidebar.new_subfolder')}</DropdownMenuItem>
                 {/* Menu create entries take NO open-in-tab gesture (#10575,
                  *  scoped out): a menu closes on select, and Radix keyboard
                  *  activation synthesizes a modifier-free click, so the
                  *  gesture would be mouse-only and undiscoverable. Listed flat,
                  *  same as the list-view folder menu (renderFolderMenuItems). */}
                 <DropdownMenuSeparator />
-                <DropdownMenuItem className="items-start" data-testid={`col-${columnId}-folder-${folder.id}-new-incognito`} onClick={() => { createChatInFolder(folder.id, { columnId, memoryMode: 'incognito' }) }}><PrivateChatRow kind="incognito" /></DropdownMenuItem>
-                <DropdownMenuItem className="items-start" data-testid={`col-${columnId}-folder-${folder.id}-new-temporary`} onClick={() => { createChatInFolder(folder.id, { columnId, memoryMode: 'temporary' }) }}><PrivateChatRow kind="temporary" /></DropdownMenuItem>
+                <DropdownMenuItem className="items-start" data-testid={`col-${columnId}-folder-${folder.id}-new-incognito`} {...offlineMenuRow(connected, i18nT('utils.offline.create_sessions'), i18nT('pages.chatSidebar.new_incognito_chat'), () => { createChatInFolder(folder.id, { columnId, memoryMode: 'incognito' }) })}><PrivateChatRow kind="incognito" /></DropdownMenuItem>
+                <DropdownMenuItem className="items-start" data-testid={`col-${columnId}-folder-${folder.id}-new-temporary`} {...offlineMenuRow(connected, i18nT('utils.offline.create_sessions'), i18nT('pages.chatSidebar.new_temporary_chat'), () => { createChatInFolder(folder.id, { columnId, memoryMode: 'temporary' }) })}><PrivateChatRow kind="temporary" /></DropdownMenuItem>
                 <DropdownMenuSeparator />
                 {/* Re-parent: board-view parity with the list-view folder menu. */}
                 <FolderMoveSubmenu variant="dropdown" label={i18nT('pages.chatSidebar.move_folder_to')} sortMode={folderSortMode}
                   folders={reparentTargets}
                   currentFolderId={folder.parent_id || null}
+                  offline={!connected}
+                  offlineTitle={i18nT('utils.offline.gateway_offline_reconnect', { action: i18nT('utils.offline.move_folders') })}
                   onPick={pid => moveFolderTo(folder.id, pid)} />
-                <DropdownMenuItem data-testid={`col-${columnId}-folder-${folder.id}-settings`} onClick={() => { setFolderModal({ mode: 'edit', folderId: folder.id }) }}><Settings size={13} /> {i18nT('components.folderConfigModal.folder_settings')}</DropdownMenuItem>
+                <DropdownMenuItem data-testid={`col-${columnId}-folder-${folder.id}-settings`} {...offlineMenuRow(connected, i18nT('utils.offline.change_folder_settings'), i18nT('components.folderConfigModal.folder_settings'), () => { setFolderModal({ mode: 'edit', folderId: folder.id }) })}><Settings size={13} /> {i18nT('components.folderConfigModal.folder_settings')}</DropdownMenuItem>
                 <DropdownMenuSeparator />
-                <DropdownMenuItem className="text-danger focus:text-danger" onClick={() => { deleteFolderWithConfirm(folder) }}><X size={13} /> {i18nT('pages.chatSidebar.delete_folder')}</DropdownMenuItem>
+                <DropdownMenuItem className="text-danger focus:text-danger" {...offlineMenuRow(connected, i18nT('utils.offline.delete_folders'), i18nT('pages.chatSidebar.delete_folder'), () => { deleteFolderWithConfirm(folder) })}><X size={13} /> {i18nT('pages.chatSidebar.delete_folder')}</DropdownMenuItem>
+                <OfflineMenuReason testId="col-folder-offline-reason" />
               </DropdownMenuContent>
             </DropdownMenu>
             {/* Same three-gesture contract as the header New button; the
              *  existing stopPropagation stays so the header click/drag
              *  handlers never see the press. */}
-            <button type="button" data-testid={`col-${columnId}-folder-${folder.id}-new-chat`} className="text-muted hover:text-accent bg-transparent border-none cursor-pointer p-[2px]" title={i18nT('pages.chatSidebar.new_chat_in_name', { name: folder.name })} aria-label={i18nT('pages.chatSidebar.new_chat_in_name', { name: folder.name })}
+            <button type="button" data-testid={`col-${columnId}-folder-${folder.id}-new-chat`} className="text-muted hover:text-accent bg-transparent border-none cursor-pointer p-[2px]" title={i18nT('pages.chatSidebar.new_chat_in_name', { name: folder.name })} aria-label={i18nT('pages.chatSidebar.new_chat_in_name', { name: folder.name })} {...offlineProps(connected, i18nT('utils.offline.create_sessions'), i18nT('pages.chatSidebar.new_chat_in_name', { name: folder.name }))}
               onClick={e => { e.stopPropagation(); createChatInFolder(folder.id, { columnId, inNewTab: !!onOpenSlotInNewTab && isOpenInTabModifierClick(e) }) }}
               onMouseDown={e => { e.stopPropagation(); if (e.button === 1 && onOpenSlotInNewTab) e.preventDefault() }}
               onAuxClick={onOpenSlotInNewTab ? (e => {
@@ -281,7 +287,7 @@ export function createBoardLane(shell: SidebarScope & LaneRows & FolderBlocks) {
                   createChatInFolder(folder.id, { columnId, inNewTab: true })
                 }) : undefined}
                 onClick={e => createChatInFolder(folder.id, { columnId, inNewTab: !!onOpenSlotInNewTab && isOpenInTabModifierClick(e) })}
-                title={i18nT('pages.chatSidebar.new_chat_in_name', { name: folder.name })} aria-label={i18nT('pages.chatSidebar.new_chat_in_name', { name: folder.name })}
+                title={i18nT('pages.chatSidebar.new_chat_in_name', { name: folder.name })} aria-label={i18nT('pages.chatSidebar.new_chat_in_name', { name: folder.name })} {...offlineProps(connected, i18nT('utils.offline.create_sessions'), i18nT('pages.chatSidebar.new_chat_in_name', { name: folder.name }))}
                 className="w-full flex items-center gap-2.5 px-4 py-2 rounded-md text-[11px] text-muted hover:text-accent hover:bg-bg-hover transition-all bg-transparent border-none cursor-pointer text-left">
                 <span>{i18nT('pages.chatSidebar.new_chat_in_name', { name: folder.name })}</span><MessageSquarePlus size={11} className="shrink-0 ml-auto" />
               </button>

@@ -14,13 +14,16 @@ import { uiLocation } from '../../uiLocations/uiLocation'
 import { PrivateChatRow } from './PrivateChatRow'
 import { isOpenInTabModifierClick } from './chrome'
 import type { SidebarScope } from './scope'
+import { offlineMenuRow } from './offlineMenuRow'
+import OfflineMenuReason from '../../components/OfflineMenuReason'
+import { offlineProps } from '../../utils/offline'
 
 /** The header row. */
 export function renderSidebarHeader(shell: SidebarScope): React.ReactNode {
-  const { cleanupOpen, collapsible, createChatInFolder, createChatMutation, createEphemeralChatMutation,
+  const { cleanupOpen, collapsible, connected, createChatInFolder, createChatMutation, createEphemeralChatMutation,
     createRemoteChatMutation, creatingSlot, crewPreview, folderCleanupOpen, folderCompare, folders, isMobile,
     missingLanes, navigate, newChatMenuOpen, onMenuCloseAutoFocus, onOpenSlotInNewTab, openCrewMembers,
-    paintedSidebarWidth, rawColumns, remoteCrewChatPreview, remoteCrewError, remoteCrewErrorId,
+    paintedSidebarWidth, rawColumns, refuseCreateOffline, remoteCrewChatPreview, remoteCrewError, remoteCrewErrorId,
     restorePreBoardWidth, seedStateLanesMutation, setCleanupOpen, setFolderCleanupOpen, setFolderModal,
     setManageTagsOpen, setNewChatMenuOpen, setRemoteCrewError, setSeedError, setToggleSaveFailed,
     tagColumnsEnabled, warmCrews } = shell
@@ -119,7 +122,12 @@ export function renderSidebarHeader(shell: SidebarScope): React.ReactNode {
           <div className="relative flex items-center rounded-md bg-accent text-accent-fg overflow-hidden [@media(pointer:coarse)]:overflow-visible shrink-0" data-create-menu>
             <button
               disabled={creatingSlot}
-              className={`mc-touch-hit-y flex items-center h-7 rounded-s-md cursor-pointer bg-transparent border-none text-accent-fg hover:bg-accent-hover active:scale-95 transition-all disabled:opacity-70 disabled:cursor-wait disabled:active:scale-100 ${compactHeader ? 'justify-center w-7' : 'gap-1.5 pl-2 pr-2.5 text-[12px] font-semibold'}`}
+              // Offline the PRESS affordances come off (`active:scale-95`, the
+              // hover fill), so a create that will refuse does not animate as
+              // accepted. No opacity dim: the accent fill is the wrapper's, so a
+              // dim here would fade only the label, and dimming the wrapper would
+              // drag down the caret, whose menu still opens offline.
+              className={`mc-touch-hit-y flex items-center h-7 rounded-s-md cursor-pointer bg-transparent border-none text-accent-fg transition-all disabled:opacity-70 disabled:cursor-wait disabled:active:scale-100 ${connected ? 'hover:bg-accent-hover active:scale-95' : ''} ${compactHeader ? 'justify-center w-7' : 'gap-1.5 pl-2 pr-2.5 text-[12px] font-semibold'}`}
               // Same three-gesture contract as a session row: plain click
               // creates and switches; Cmd/Ctrl-click and middle-click create the
               // session as a background TAB and leave the user where they are.
@@ -131,11 +139,17 @@ export function renderSidebarHeader(shell: SidebarScope): React.ReactNode {
               onAuxClick={onOpenSlotInNewTab ? (e => {
                 if (e.button !== 1 || creatingSlot) return
                 e.preventDefault()
+                // The same create as the caret menu's New chat row, which dims
+                // and refuses offline; refused on both gestures, with the reason.
+                if (!connected) { refuseCreateOffline(); return }
                 createChatMutation.mutate({ inNewTab: true })
               }) : undefined}
-              onClick={e => { createChatMutation.mutate({ inNewTab: !!onOpenSlotInNewTab && isOpenInTabModifierClick(e) }) }}
+              onClick={e => { if (!connected) { refuseCreateOffline(); return } createChatMutation.mutate({ inNewTab: !!onOpenSlotInNewTab && isOpenInTabModifierClick(e) }) }}
               title={i18nT('pages.chatSidebar.new_chat')}
               aria-label={i18nT('pages.chatSidebar.new_chat_session')}
+              // Spread only while offline: this button also carries
+              // `disabled={creatingSlot}`, and `aria-disabled="false"` would contradict it.
+              {...(connected ? {} : offlineProps(connected, i18nT('utils.offline.create_sessions'), i18nT('pages.chatSidebar.new_chat_session')))}
               aria-busy={creatingSlot}
               {...uiLocation('chat.new-session')}
             >{creatingSlot ? <Loader2 size={15} className="animate-spin" /> : <Plus size={15} />}{!compactHeader && <span className="whitespace-nowrap">{creatingSlot ? i18nT('pages.chatSidebar.creating') : i18nT('pages.chatSidebar.new')}</span>}</button>
@@ -156,7 +170,7 @@ export function renderSidebarHeader(shell: SidebarScope): React.ReactNode {
                  *  ordinary one reads as if the other kinds were the only ones
                  *  the caret can make. Listed first so the default stays the
                  *  default. */}
-                <DropdownMenuItem disabled={creatingSlot} onClick={() => { createChatMutation.mutate({ inNewTab: false }) }}>
+                <DropdownMenuItem data-testid="new-plain-chat" disabled={creatingSlot} {...offlineMenuRow(connected, i18nT('utils.offline.create_sessions'), i18nT('pages.chatSidebar.new_chat'), () => { createChatMutation.mutate({ inNewTab: false }) })}>
                   <MessageSquarePlus size={14} className="text-muted" /> {i18nT('pages.chatSidebar.new_chat')}
                 </DropdownMenuItem>
                 {/* The two private modes sit at the top level beside New chat,
@@ -164,10 +178,10 @@ export function renderSidebarHeader(shell: SidebarScope): React.ReactNode {
                  *  used to share a submenu named for a word no other surface uses,
                  *  which at phone width collapsed into a caption that read as a
                  *  button. */}
-                <DropdownMenuItem className="items-start" data-testid="new-incognito-chat" disabled={creatingSlot} onClick={() => { createEphemeralChatMutation.mutate('incognito') }} {...uiLocation('sessions.create-menu.incognito')}>
+                <DropdownMenuItem className="items-start" data-testid="new-incognito-chat" disabled={creatingSlot} {...offlineMenuRow(connected, i18nT('utils.offline.create_sessions'), i18nT('pages.chatSidebar.new_incognito_chat'), () => { createEphemeralChatMutation.mutate('incognito') })} {...uiLocation('sessions.create-menu.incognito')}>
                   <PrivateChatRow kind="incognito">{i18nT('pages.chatSidebar.new_incognito_chat')}</PrivateChatRow>
                 </DropdownMenuItem>
-                <DropdownMenuItem className="items-start" data-testid="new-temporary-chat" disabled={creatingSlot} onClick={() => { createEphemeralChatMutation.mutate('temporary') }} {...uiLocation('sessions.create-menu.temporary')}>
+                <DropdownMenuItem className="items-start" data-testid="new-temporary-chat" disabled={creatingSlot} {...offlineMenuRow(connected, i18nT('utils.offline.create_sessions'), i18nT('pages.chatSidebar.new_temporary_chat'), () => { createEphemeralChatMutation.mutate('temporary') })} {...uiLocation('sessions.create-menu.temporary')}>
                   <PrivateChatRow kind="temporary">{i18nT('pages.chatSidebar.new_temporary_chat')}</PrivateChatRow>
                 </DropdownMenuItem>
                 {/* Import creates a session too, so it sits with the create rows
@@ -200,7 +214,7 @@ export function renderSidebarHeader(shell: SidebarScope): React.ReactNode {
                   </span>
                 </DropdownMenuItem>
                 <DropdownMenuSeparator />
-                <DropdownMenuItem onClick={() => { setFolderModal({ mode: 'create', parentId: '' }) }} {...uiLocation('sessions.create-menu.new-folder')}>
+                <DropdownMenuItem data-testid="new-folder" {...offlineMenuRow(connected, i18nT('utils.offline.create_folders'), i18nT('pages.chatSidebar.new_folder'), () => { setFolderModal({ mode: 'create', parentId: '' }) })} {...uiLocation('sessions.create-menu.new-folder')}>
                   <FolderPlus size={14} className="text-muted" /> {i18nT('pages.chatSidebar.new_folder')}
                 </DropdownMenuItem>
                 {folders.length > 0 && (() => {
@@ -211,7 +225,7 @@ export function renderSidebarHeader(shell: SidebarScope): React.ReactNode {
                     const walk = (list: ChatFolder[], depth: number) => { for (const f of list) { items.push({ f, depth }); walk(childrenOf(f.id), depth + 1) } }
                     walk(roots, 0)
                     return items.map(({ f, depth }) => (
-                      <DropdownMenuItem key={f.id} style={{ paddingLeft: `${12 + depth * 16}px` }} onClick={() => createChatInFolder(f.id, { focus: true })}>
+                      <DropdownMenuItem key={f.id} style={{ paddingLeft: `${12 + depth * 16}px` }} {...offlineMenuRow(connected, i18nT('utils.offline.create_sessions'), f.name, () => { createChatInFolder(f.id, { focus: true }) })}>
                         <Folder size={14} className={depth === 0 ? 'text-muted' : 'text-muted/60'} /> {f.name}
                       </DropdownMenuItem>
                     ))
@@ -347,6 +361,9 @@ export function renderSidebarHeader(shell: SidebarScope): React.ReactNode {
                     </DropdownMenuSub>
                   )
                 })()}
+                {/* Last, like every gated menu: the dimmed rows say something is
+                    unavailable, this says why. */}
+                <OfflineMenuReason testId="new-menu-offline-reason" />
               </DropdownMenuContent>
             </DropdownMenu>
           </div>

@@ -163,6 +163,9 @@ export interface SidebarScope {
   setBoardError: SetState<string>
   folderActionError: string
   setFolderActionError: SetState<string>
+  /** An offline refusal: neutral status text, never the failure surface. */
+  folderOfflineNotice: string
+  setFolderOfflineNotice: SetState<string>
   newChatError: string
   setNewChatError: SetState<string>
   remoteCrewErrorId: string
@@ -487,6 +490,7 @@ export interface SidebarScope {
   folderCreateError: ReturnType<typeof useFolderChatCreate>['folderCreateError']
   setFolderCreateError: ReturnType<typeof useFolderChatCreate>['setFolderCreateError']
   createChatInFolder: ReturnType<typeof useFolderChatCreate>['createChatInFolder']
+  refuseCreateOffline: ReturnType<typeof useFolderChatCreate>['refuseCreateOffline']
 
   // From `useSessionCreate`
   crewPreview: ReturnType<typeof useSessionCreate>['crewPreview']

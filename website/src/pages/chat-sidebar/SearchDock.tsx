@@ -7,7 +7,7 @@
  *  writes and order, create, rename, title, peer sessions). */
 import { Fragment } from 'react'
 import { AnimatePresence, motion } from 'framer-motion'
-import { X, ArrowUpDown, EyeOff, ChevronRight, Clock, Check, List, ListTree, RotateCcw, Server, Pause, Play } from 'lucide-react'
+import { X, ArrowUpDown, EyeOff, ChevronRight, Clock, Check, List, ListTree, RotateCcw, Server, Pause, Play, WifiOff } from 'lucide-react'
 import ErrorNotice from '../../components/ErrorNotice'
 import FolderGlyph from '../../components/FolderGlyph'
 import { useQuery } from '@tanstack/react-query'
@@ -17,7 +17,7 @@ import { setCloseRefused } from '../../store/chatSlice'
 import { api } from '../../api/client'
 import { isInstancesDisabledError } from '../../utils/instancesDisabled'
 import { errMessage } from '../../utils/thunkError'
-import { Btn } from '../../components/ui'
+import { Btn, IconButton } from '../../components/ui'
 import SimpleSelect from '../../components/SimpleSelect'
 import { isEmbeddedPane } from '../../lib/embedded'
 import { SearchFilterBar, FilterMenuButton, FilterChip, FILTER_CHIP_ROW_CLS, FilterMenuLabel, FilterMenuContent } from '../../components/SearchFilterBar'
@@ -149,15 +149,15 @@ function RemoteCrewNamesError() {
 export function renderSearchDock(shell: SidebarScope): { field: React.ReactNode; shelf: React.ReactNode } {
   const { activeFilters, activeModelKeys, activeModelRows, activeTagIds, activeTagNames, autoTitleError,
     availableLanes, boardLaneActive, changeRecentUnit, clearHiddenFilters, clearModelFilter, clearTagFilter,
-    closeRefused, columnsError, columnsFailed, commitRecentAmount, conductorView, cycleLane, dispatch,
+    closeRefused, columnsError, columnsFailed, commitRecentAmount, conductorView, connected, cycleLane, dispatch,
     filterCounts, filterHiddenFolders, filterSortOpen, filtersPaused, flatLaneActive, folderActionError,
-    folderFilterRows, folderReorderHint, folderReorderHintRef, folderRowsDrawn, folderSortMode,
+    folderFilterRows, folderOfflineNotice, folderReorderHint, folderReorderHintRef, folderRowsDrawn, folderSortMode,
     folderSortMut, folderSortRead, folders, foldersError, foldersFailed, foldersShelved,
     hasRemoteExecutedRow, hiddenFilters, hiddenFolderCount, instanceSessions, isMobile, lane,
     laneSwitchLabel, listNarrowed, modelFilterInverted, modelFilterRows, newChatError, nextLane,
     recentAmountDraft, recentUnitDraft, recentWindowMs, refetchColumns, refetchFolders, remoteSessionsError,
     renameError, seedError, seedStateLanesMutation, selectRecentPreset, setAllFiltersPaused,
-    setAutoTitleError, setFilterSortOpen, setFolderActionError, setModelFilterExcluded, setNewChatError,
+    setAutoTitleError, setFilterSortOpen, setFolderActionError, setFolderOfflineNotice, setModelFilterExcluded, setNewChatError,
     setRecentAmountDraft, setRenameError, setSeedError, setSlotFilter, setSortKey, setStaleCollapseMs,
     setToggleSaveFailed, showAllFolders, slotFilter, sortKey, staleCollapseMs, tagFilterRows, toggleFilter,
     toggleFolderFilter, toggleFoldersShelved, toggleHideFilter, toggleModelFilter, toggleSaveFailed,
@@ -1051,10 +1051,33 @@ export function renderSearchDock(shell: SidebarScope): { field: React.ReactNode;
         className="mx-2 mt-2 shrink-0"
         testId="close-refused"
       />
+      {/* An offline refusal is not a failure: no request was sent, so the danger
+        *  surface below would dress a non-event as one. Neutral, and
+        *  `role="status"` so it is announced without an alert's interrupt. */}
+      {folderOfflineNotice && (
+        <div role="status" className="mx-2 mt-2 shrink-0 rounded-lg border border-border bg-bg-elevated px-3 py-2 flex items-start gap-2 text-[13px] text-muted" data-testid="folder-action-offline">
+          <WifiOff size={14} className="mt-[2px] shrink-0" aria-hidden="true" />
+          {/* Same wrapping row as the notice beside it: at sidebar width an
+            *  inline dismiss squeezed the sentence to a word per line. */}
+          <div className="min-w-0 flex-1 flex flex-wrap items-start gap-x-2 gap-y-1">
+            <div className="min-w-0 grow basis-[12rem] whitespace-pre-wrap" style={{ overflowWrap: 'anywhere' }}>
+              {folderOfflineNotice}
+            </div>
+          </div>
+          <IconButton
+            className="shrink-0"
+            aria-label={i18nT('components.errorNotice.dismiss')}
+            onClick={() => setFolderOfflineNotice('')}
+          >
+            <X size={14} aria-hidden="true" />
+          </IconButton>
+        </div>
+      )}
+      {/* The Ask-the-agent hand-off is withheld offline: its composer cannot send. */}
       <ErrorNotice
         title={i18nT('pages.chatSidebar.folder_update_failed')}
         message={folderActionError}
-        askAgent
+        askAgent={connected}
         onDismiss={() => setFolderActionError('')}
         className="mx-2 mt-2 shrink-0"
         testId="folder-action-error"

@@ -149,6 +149,9 @@ function ChatSidebar({
   // update already rolls the cache back, but a rolled-back rename with no message
   // reads as a dead click.
   const [folderActionError, setFolderActionError] = useState('')
+  // Kept apart from the error above because nothing was sent: an offline refusal
+  // is status text, and routing it through the danger surface would claim a failure.
+  const [folderOfflineNotice, setFolderOfflineNotice] = useState('')
   // A failed "New chat" (any local variant) used to be a silent no-op: the
   // react-query rejection was swallowed and nothing rendered. Mirrors
   // remoteCrewError below, but lives above the list rather than in the menu,
@@ -272,6 +275,13 @@ function ChatSidebar({
   } = useSessionStatusFilters({ unreadSlots, activeFilters, filtersPaused, enableFilter, localSlots, disableFilter })
   const creatingSlot = useAppSelector(s => s.chat.creatingSlot)
   const connected = useConnected()
+  // An offline refusal stops being true once the gateway is back, so retire it on
+  // the disconnected -> connected transition only.
+  const wasConnected = useRef(connected)
+  useEffect(() => {
+    if (connected && !wasConnected.current) setFolderOfflineNotice('')
+    wasConnected.current = connected
+  }, [connected])
   const {
     historyOpen, setHistoryOpen, openHistoryPane, historyHeight, historyDragging, historyResize,
   } = useHistoryPane({ setHistoryFilter, slotFilter, dispatch })
@@ -554,7 +564,7 @@ function ChatSidebar({
 
   const {
     createFolderMutation, deleteFolderMutation, updateFolderMutation, toggleCollapse,
-  } = useFolderMutations({ queryClient, setFolderActionError, folders })
+  } = useFolderMutations({ queryClient, setFolderActionError, setFolderOfflineNotice, folders, connected })
   // The list view's toggle. Its folder headers are sticky, so a collapse also
   // moves the lane to keep a pinned header where it is painted, in the commit
   // that hides the body (see stickyCollapse.ts); `from` is the pressed control,
@@ -588,16 +598,23 @@ function ChatSidebar({
   }, [startNativeSessionDrag])
   const {
     reorderFolders, moveFolderTo,
-  } = useFolderDropOps({ folderReorderable, queryClient, setFolderActionError, updateFolderMutation })
+  } = useFolderDropOps({ folderReorderable, queryClient, setFolderActionError, setFolderOfflineNotice, updateFolderMutation, connected })
   const { folderSubtrees, expandFolderAncestors } = useFolderTree({ folders, updateFolderMutation, clearBoardCollapse })
 
   const {
     revealFlash,
   } = useSidebarReveal({ sidebarRootRef, dispatch, localSlots, revealBlockingFilters, staleCollapseMs, sortKey, isStaleExempt, slotFolders, setStaleExpanded, expandFolderAncestors, expandConductorAncestors: expandRevealAncestors, folders, setSlotFilter, setFilterHiddenFolders, setRevealForcedVisible, setFlatView })
   const renameCommit = useCallback((id: string, name: string) => {
+    // Re-checked here, not only where the editor opens: the gateway can drop
+    // while an editor is open. Keep the editor and its draft, and say why,
+    // instead of firing a PATCH whose rollback would discard the typed name.
+    if (!connected) {
+      setFolderOfflineNotice(i18nT('utils.offline.gateway_offline_reconnect', { action: i18nT('utils.offline.rename_folders') }))
+      return
+    }
     if (name.trim()) updateFolderMutation.mutate({ id, body: { name: name.trim() } })
     setEditingId(null)
-  }, [updateFolderMutation, setEditingId])
+  }, [updateFolderMutation, setEditingId, connected])
   const {
     dragMove, undoDragMove, undoBar, folderMove, undoFolderMove, folderUndoBar, moveByDrag, moveFolderByDrag,
   } = useSidebarMoveUndo({ localSlots, folders, moveFolderTo, queryClient })
@@ -616,8 +633,8 @@ function ChatSidebar({
     handleSidebarDragOver,
   } = useSidebarDragHandlers({ releaseHoverPin, setDragFrozen, hideFolderReorderHint, setActiveDrag, activeDrag, dragFrozen, folderReorderable, folderSortRead, showFolderReorderHint, moveFolderByDrag, reorderFolders, searchRanked, pinned, reorderPinned, localSlots, activeSlot, onDropSessionRef, moveByDrag, folders, boardFolderCollapsed, updateFolderMutation, clearBoardCollapse })
   const {
-    folderCreateError, setFolderCreateError, createChatInFolder,
-  } = useFolderChatCreate({ folders, mode, dispatch, dropSlotMutation, onOpenSlotInNewTab, updateFolderMutation, clearBoardCollapse })
+    folderCreateError, setFolderCreateError, createChatInFolder, refuseCreateOffline,
+  } = useFolderChatCreate({ folders, mode, dispatch, dropSlotMutation, onOpenSlotInNewTab, updateFolderMutation, clearBoardCollapse, connected, setFolderOfflineNotice })
 
   const {
     crewPreview, openCrewMembers, remoteCrewChatPreview,
@@ -732,7 +749,7 @@ function ChatSidebar({
     creatingSlot, crewEnable, crewPreview, cycleLane, defaultAgent, deleteColumnWithConfirm,
     deleteFolderWithConfirm, deleteHistorySessionWithConfirm, derivedHintCol, disarmHold, dispatch,
     dndSensors, dropSlotMutation, editingId, editName, editScope, filterCounts, filterHiddenFolders,
-    filterSortOpen, filtersPaused, flatLaneActive, flatSlots, flatView, folderActionError, folderCleanupOpen,
+    filterSortOpen, filtersPaused, flatLaneActive, flatSlots, flatView, folderActionError, folderCleanupOpen, folderOfflineNotice,
     folderCompare, folderConductorPin, folderCreateError, folderDragWithheld, folderEditInputRef,
     folderFilterRows, folderNameMatchIds, folderReorderable, folderReorderHint, folderReorderHintRef,
     folderRowsDrawn, folders, foldersError, foldersFailed, folderSortMode, folderSortMut, folderSortRead,
@@ -753,7 +770,7 @@ function ChatSidebar({
     seedStateLanesMutation, selectInstance, selectRecentPreset, sessionCleanup, setAllFiltersPaused,
     setAutoTitleError, setBoardError, setCleanupOpen, setCollapsedHistoryGroups, setColumnEditId,
     setDerivedHintCol, setEditingId, setEditName, setEditScope, setFilterSortOpen, setFlatView,
-    setFolderActionError, setFolderCleanupOpen, setFolderCreateError, setFolderModal, setFoldersShelved,
+    setFolderActionError, setFolderCleanupOpen, setFolderOfflineNotice, refuseCreateOffline, setFolderCreateError, setFolderModal, setFoldersShelved,
     setHistoryFilter, setHistoryOpen, setLaneScrollEl, setManageTagsOpen, setModelFilterExcluded,
     setNewChatError, setNewChatMenuOpen, setRecentAmountDraft, setRemoteCrewError, setRenameError,
     setSeedError, setSlotFilter, setSortKey, setStaleCollapseMs, setStaleExpanded, setToggleSaveFailed,

@@ -287,7 +287,7 @@ export function BusySendControls({ stopState, killingEscaped, stopWithTap, isQue
             title={holdSend ? `${i18nT('components.chatInput.send')} — ${holdSendReason}` : undefined}
             aria-label={i18nT('components.chatInput.send')}
             data-testid="steer-only-send"
-            {...offlineProps(connected, 'send', i18nT('components.chatInput.send'))}
+            {...offlineProps(connected, i18nT('utils.offline.send'), i18nT('components.chatInput.send'))}
           >
             <ArrowUp size={18} />
           </button>

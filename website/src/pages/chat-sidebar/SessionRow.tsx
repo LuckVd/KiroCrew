@@ -1060,7 +1060,7 @@ export const SessionRow = memo(function SessionRow({ view, actions }: SessionRow
                 ? i18nT('pages.chatSidebar.opens_on_members_page')
                 : undefined
           }
-          {...offlineProps(connected, 'switch sessions')}
+          {...offlineProps(connected, i18nT('utils.offline.switch_sessions'))}
           role="button"
           tabIndex={0}
           data-session-row={rowIdentity}
