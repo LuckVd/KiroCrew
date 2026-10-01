@@ -1,8 +1,8 @@
 import { useEffect, useState, useRef, useMemo, useCallback, type Dispatch, type SetStateAction, type MutableRefObject } from 'react'
 import type { HoverIntent } from '../../../hooks/useHoverIntent'
-import type { AppDispatch } from '../../../store'
+import type { AppDispatch, AppStore } from '../../../store'
 import type { ChatSlot, ChatFolder } from '../../../types'
-import { openActivityPanel, createSlot, deleteSlot } from '../../../store/chatSlice'
+import { openActivityPanel, createSlot, deleteSlot, switchSlot } from '../../../store/chatSlice'
 import { safeSetItem } from '../../../utils/safeStorage'
 import type { useChatPageResourcesController } from '../useChatPageResourcesController'
 import type { useComposerChips } from './composerChips'
@@ -16,6 +16,9 @@ import { resolveFolderAgent, resolveFolderProjectDir, isStaleProjectDirError } f
 import { PanelLeftLight, PanelLeftSolid } from '../../../components/icons/panels'
 import { sidePanelDockMotion } from '../sidePanelMount'
 import { errMessage } from '../../../utils/thunkError'
+import { takeComposerArrivals } from '../../../utils/composerSendHolds'
+import { setFileDraft } from '../../../utils/chatFileDrafts'
+import { forgetSlotSuccession, recordSlotSuccession } from '../../../utils/slotSuccession'
 import { crewWindowShown } from '../crew-window/crewWindowStore'
 import { i18nT } from '../../../i18n/t'
 import { uiLocation } from '../../../uiLocations/uiLocation'
@@ -176,6 +179,26 @@ interface PanelLayoutOptions {
   previewExpanded: boolean
   sidebarOpen: boolean
   flyout: HoverIntent
+  /** The composer state a memory-mode switch carries into the replacement session. */
+  memorySwitch: MemorySwitchComposer
+}
+
+type Ref<T> = MutableRefObject<T>
+interface MemorySwitchComposer {
+  store: AppStore
+  composerSlotRef: Ref<string | null>
+  inputRef: Ref<string>
+  pendingFilesRef: Ref<string[]>
+  pasteBlocksRef: Ref<object[]>
+  pendingSessionsRef: Ref<object[]>
+  drafts: Ref<Record<string, string>>
+  fileDrafts: Ref<Record<string, string[]>>
+  pasteDrafts: Ref<Record<string, object[]>>
+  sessionRefDrafts: Ref<Record<string, object[]>>
+  pickedFileTokens: Ref<Record<string, object | undefined>>
+  saveDrafts: () => void
+  setPendingFiles: Dispatch<SetStateAction<string[]>>
+  setActionError: (error: { message: string; preserveOnSwitch: true }) => void
 }
 
 /**
@@ -188,7 +211,7 @@ interface PanelLayoutOptions {
 export function usePanelLayout({
   mode, dispatch, isMobile, filteredSlots, activeSlot, isWelcomeState, showActionError, currentSlot, chatFolders, chatFoldersError, chatFoldersLoaded, mobileNewSessionBusy,
   mobileNewSessionInFlightRef, setMobileNewSessionBusy, setSidebarPinned, sidebarPinned, railWidth, winW, effectiveSidebarWidth, mobileSessions, openSidebar, closeSidebar, previewExpanded,
-  sidebarOpen, flyout,
+  sidebarOpen, flyout, memorySwitch,
 }: PanelLayoutOptions) {
   const flyoutNew = useCallback(() => {
     flyout.close()
@@ -336,8 +359,8 @@ export function usePanelLayout({
   const switchMemoryMode = async (newMode: MemoryMode) => {
     if (!activeSlot) return
     // Create-first-then-delete: deleting the active slot first
-    // would make deleteSlot jump focus to a sibling. Creating
-    // first keeps the new slot active, so the delete skips the
+    // would make deleteSlot jump focus to a sibling. Creating and
+    // switching first makes the new slot active, so the delete skips the
     // sibling navigation. Carry agent/project/folder/color so
     // the recreated slot keeps its identity and placement.
     const old = currentSlot
@@ -352,11 +375,119 @@ export function usePanelLayout({
       color_hex: old?.color_hex ?? null,
       project: old?.project ?? null,
     }
-    try { await dispatch(createSlot(opts)).unwrap() } catch (error) {
+    const {
+      store: boundStore, composerSlotRef, inputRef, pendingFilesRef, pasteBlocksRef, pendingSessionsRef,
+      drafts, fileDrafts, pasteDrafts, sessionRefDrafts, pickedFileTokens, saveDrafts, setPendingFiles, setActionError,
+    } = memorySwitch
+    // Created in the background so the unsent draft can move to the new slot
+    // BEFORE it activates: the slot-change effect restores the incoming slot's
+    // draft, which for a fresh slot is empty, and the old slot (where the
+    // draft lives) is deleted below.
+    let created: { key?: string } | undefined
+    try { created = await dispatch(createSlot({ ...opts, activate: false })).unwrap() } catch (error) {
       showActionError(errMessage(error) || i18nT('pages.chatPage.unknown_error'))
       return
     }
+    const next = created?.key
+    if (!next) return
+    // The user moved to another session while the create was in flight: the
+    // switch is abandoned. Switching to `next` would pull them out of where
+    // they went, and deleting `activeSlot` would destroy the draft it still
+    // holds. Drop the unused replacement instead (it is not active, so its
+    // delete navigates nowhere).
+    if (boundStore.getState().chat.activeSlot !== activeSlot || composerSlotRef.current !== activeSlot) {
+      void dispatch(deleteSlot(next)).unwrap().catch(error => {
+        showActionError(errMessage(error) || i18nT('pages.chatPage.unknown_error'))
+      })
+      return
+    }
+    // Read the live composer, not the stored draft: the debounced draft save
+    // may not have caught the last keystrokes yet.
+    if (inputRef.current) drafts.current[next] = inputRef.current
+    const carriedFiles = pendingFilesRef.current.slice()
+    if (carriedFiles.length) fileDrafts.current[next] = carriedFiles.slice()
+    if (pasteBlocksRef.current.length) pasteDrafts.current[next] = pasteBlocksRef.current.map(b => ({ ...b }))
+    if (pendingSessionsRef.current.length) sessionRefDrafts.current[next] = pendingSessionsRef.current.map(r => ({ ...r }))
+    const tokens = pickedFileTokens.current[activeSlot]
+    if (tokens) pickedFileTokens.current[next] = { ...tokens }
+    saveDrafts()
+    // The replacement's draft as it stands: live composer while it is on
+    // screen, stored draft otherwise. Its signature at carry time is what an
+    // untouched replacement still holds.
+    const draftSignature = (slot: string) => {
+      const onScreen = composerSlotRef.current === slot
+      return JSON.stringify([
+        onScreen ? inputRef.current : (drafts.current[slot] ?? ''),
+        onScreen ? pendingFilesRef.current : (fileDrafts.current[slot] ?? []),
+        onScreen ? pasteBlocksRef.current : (pasteDrafts.current[slot] ?? []),
+        onScreen ? pendingSessionsRef.current : (sessionRefDrafts.current[slot] ?? []),
+      ])
+    }
+    const carriedSignature = JSON.stringify([
+      drafts.current[next] ?? '',
+      fileDrafts.current[next] ?? [],
+      pasteDrafts.current[next] ?? [],
+      sessionRefDrafts.current[next] ?? [],
+    ])
+    // Watch for the user going back to the old session while the switch loads:
+    // once they have used it again it is no longer ours to delete, even if they
+    // moved on again before the switch resolved.
+    let left = false
+    let revisited = false
+    const unsubscribe = boundStore.subscribe(() => {
+      const now = boundStore.getState().chat.activeSlot
+      if (now !== activeSlot) left = true
+      else if (left) revisited = true
+    })
+    // An aborted switch keeps the old session, so the replacement would be a
+    // stray empty one. Drop it -- unless the user is now looking at it, where
+    // deleting it would yank them to a sibling, or they typed or attached
+    // something in it while the switch loaded: that draft exists nowhere else,
+    // and a stray session is cheaper than losing it.
+    const dropReplacement = (report: boolean) => {
+      if (boundStore.getState().chat.activeSlot === next) return
+      if (draftSignature(next) !== carriedSignature) return
+      void dispatch(deleteSlot(next)).unwrap().catch(error => {
+        if (report) showActionError(errMessage(error) || i18nT('pages.chatPage.unknown_error'))
+      })
+    }
+    try {
+      await dispatch(switchSlot(next)).unwrap()
+    } catch (error) {
+      // The rejected switch moves the view back to the old slot, and the
+      // slot-change effect clears any error not marked to survive a switch --
+      // which would erase the only report that the switch failed.
+      setActionError({ message: errMessage(error) || i18nT('pages.chatPage.unknown_error'), preserveOnSwitch: true })
+      // Silent: a cleanup failure must not replace the switch failure, and a
+      // replacement that 404ed has nothing left to delete.
+      dropReplacement(false)
+      return
+    } finally {
+      unsubscribe()
+    }
+    if (revisited || boundStore.getState().chat.activeSlot === activeSlot) {
+      dropReplacement(true)
+      return
+    }
+    // From here on an upload still running from the old slot resolves to the
+    // replacement (see uploadFiles). One that already finished while the switch
+    // loaded landed in the old slot's draft after the carry above -- or waits
+    // undrained in its arrivals once the old slot left the screen -- so move it
+    // across too, otherwise it is deleted with the old slot.
+    recordSlotSuccession(activeSlot, next)
+    const late = [...(fileDrafts.current[activeSlot] ?? []), ...takeComposerArrivals(activeSlot)]
+      .filter((p, i, all) => !carriedFiles.includes(p) && all.indexOf(p) === i)
+    if (late.length) {
+      if (boundStore.getState().chat.activeSlot === next) {
+        setPendingFiles(prev => [...prev, ...late.filter(p => !prev.includes(p))])
+      } else {
+        const cur = fileDrafts.current[next] ?? []
+        setFileDraft(fileDrafts.current, next, [...cur, ...late.filter(p => !cur.includes(p))])
+        saveDrafts()
+      }
+    }
     try { await dispatch(deleteSlot(activeSlot)).unwrap() } catch (error) {
+      forgetSlotSuccession(activeSlot)
       showActionError(errMessage(error) || i18nT('pages.chatPage.unknown_error'))
     }
   }
