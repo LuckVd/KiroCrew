@@ -585,6 +585,7 @@ export default function ChatPage({ mode, embedded, embedMode, popout, noUrlSync 
     slots, activeSlot,
   })
 
+  const memorySwitchingRef = useRef(false) // Held true while a memory-mode switch runs (see usePanelLayout).
   const resources = useChatPageResourcesController({
     activeSlot,
     activeSlotRef,
@@ -600,7 +601,7 @@ export default function ChatPage({ mode, embedded, embedMode, popout, noUrlSync 
       currentProjectRef,
       voiceCaretRef,
       voicePendingCaretRef,
-      saveDrafts,
+      saveDrafts, composerLockedRef: memorySwitchingRef,
     },
     capture: {
       setUploading,
@@ -641,7 +642,7 @@ export default function ChatPage({ mode, embedded, embedMode, popout, noUrlSync 
     handleCapture,
     handleSnipComplete,
     handleSnipCancel,
-    uploadFiles,
+    composerUploadFiles,
     cancelUpload,
     uploadCancellable,
     handleOptimizeResult,
@@ -1252,11 +1253,11 @@ export default function ChatPage({ mode, embedded, embedMode, popout, noUrlSync 
     flyout.close()
   }, [dispatch, flyout, setSplitMode])
   const {
-    flyoutNew, panelReserve, panelMaximized, panelFillWidth, mobileSessionsToggle, topbarSessionsToggle, mobileNewSessionItem, switchMemoryMode, showComposerMemoryChip,
+    flyoutNew, panelReserve, panelMaximized, panelFillWidth, mobileSessionsToggle, topbarSessionsToggle, mobileNewSessionItem, switchMemoryMode, showComposerMemoryChip, memorySwitching, composerOptimizing, handleOptimizingChange,
   } = usePanelLayout({
     mode, dispatch, isMobile, filteredSlots, activeSlot, isWelcomeState, showActionError, currentSlot, chatFolders, chatFoldersError, chatFoldersLoaded, mobileNewSessionBusy,
     mobileNewSessionInFlightRef, setMobileNewSessionBusy, setSidebarPinned, sidebarPinned, railWidth, winW, effectiveSidebarWidth, mobileSessions, openSidebar, closeSidebar, previewExpanded,
-    sidebarOpen, flyout, memorySwitch: { store: boundStore, composerSlotRef, inputRef, pendingFilesRef, pasteBlocksRef, pendingSessionsRef, drafts, fileDrafts, pasteDrafts, sessionRefDrafts, pickedFileTokens, saveDrafts, setPendingFiles, setActionError },
+    sidebarOpen, flyout, memorySwitch: { store: boundStore, composerSlotRef, inputRef, pendingFilesRef, pasteBlocksRef, pendingSessionsRef, drafts, fileDrafts, pasteDrafts, sessionRefDrafts, pickedFileTokens, saveDrafts, setActionError, composerMountedRef, lockRef: memorySwitchingRef },
   })
 
   // The band ChatInput renders above the composer, and the session-control chips.
@@ -2294,9 +2295,11 @@ export default function ChatPage({ mode, embedded, embedMode, popout, noUrlSync 
                 // `w-fit`, not a full-width flex row: the box is a `dock-inert` child, so
                 // it catches input, and it should be no wider than the chip it holds.
                 <div className="relative z-10 mx-auto w-fit px-4 pt-2 pb-2" data-testid="composer-memory-chip">
-                  <MemoryModeChip memoryMode={currentSlot?.memory_mode ?? 'persistent'} onSwitchMode={switchMemoryMode} />
+                  <MemoryModeChip memoryMode={currentSlot?.memory_mode ?? 'persistent'} onSwitchMode={switchMemoryMode} switching={memorySwitching} disabled={composerOptimizing} />
                 </div>
               )}
+              {/* Announces why the composer is locked; in every session, as the user may move on mid-switch. */}
+              <span role="status" className="sr-only" data-testid="memory-switch-status">{memorySwitching ? i18nT('components.welcomeView.switching_memory_mode') : ''}</span>
               <Composer
                 ref={composerRef}
                 slotKey={activeSlot}
@@ -2323,18 +2326,14 @@ export default function ChatPage({ mode, embedded, embedMode, popout, noUrlSync 
               // nothing makes.
               jevAutoAvailable={jevAutoConsented && !!slotRunning}
               onFollowUpSend={(text?: string) => send(text)}
-              disabled={
-                /* Streaming, compaction, and stopping all
-                   keep the input interactive: api_chat queues on slot.running and
-                   stop preserves the queue, so typing + Enter queues a
-                   follow-up during the stop window instead of being silently blocked. */
-                false
-              }
+              // Streaming, compaction and stopping keep the input interactive (api_chat queues on slot.running and stop preserves the
+              // queue, so Enter queues a follow-up during the stop window). Only a memory-mode switch locks it, the reason as placeholder.
+              disabled={memorySwitching} lockedPlaceholder={memorySwitching ? i18nT('components.welcomeView.switching_memory_mode') : undefined}
               autoFocusKey={activeSlot}
               prefillHint={prefillHint}
               onDismissHint={() => setPrefillHint(false)}
               onScreenshot={handleCapture}
-              onUploadFiles={uploadFiles}
+              onUploadFiles={composerUploadFiles}
               /* Only while the active slot has a live upload request, whichever
                  host started it. `uploading` is shared with the screenshot
                  path, which has no request to cancel. */
@@ -2479,6 +2478,7 @@ export default function ChatPage({ mode, embedded, embedMode, popout, noUrlSync 
               sessionMode={currentSlot?.mode || mode}
               onAutomationChange={applyAutomationChange}
               onOptimizeResult={handleOptimizeResult}
+              onOptimizingChange={handleOptimizingChange}
               memoryMode={currentSlot?.memory_mode ?? 'persistent'}
               sentMessages={sentMessages}
               onEditLastRequest={handleEditLastRequest}

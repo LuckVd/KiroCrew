@@ -48,13 +48,12 @@ import {
 } from '../../utils/pullRequestLinks'
 import type { ResizeInfo } from '../../utils/resizeImage'
 import { errMessage } from '../../utils/thunkError'
-import { pinSlotSuccession, releaseSlotSuccession, resolveSlotSuccession } from '../../utils/slotSuccession'
 import { usePanelDocumentActions } from '../../hooks/usePanelDocumentActions'
 import { fetchDashboardConfig } from '../../api/dashboardConfigQuery'
 import {
   cancelComposerUploads,
+  composerUploadSlot,
   holdComposerSend,
-  landComposerAttachments,
   registerComposerUpload,
   finishComposerAttachment,
   releaseComposerSend,
@@ -72,6 +71,9 @@ interface ChatPageResourcesComposerPorts {
   voiceCaretRef: MutableRef<{ start: number; end: number } | null>
   voicePendingCaretRef: MutableRef<number | null>
   saveDrafts: () => void
+  /** True while the composer is locked (a memory-mode switch in flight):
+   *  composer drops, pastes and attachments are refused. */
+  composerLockedRef: MutableRef<boolean>
 }
 
 interface ChatPageResourcesCapturePorts {
@@ -122,6 +124,7 @@ export function useChatPageResourcesController({
     voiceCaretRef,
     voicePendingCaretRef,
     saveDrafts,
+    composerLockedRef,
   } = composer
   const {
     setUploading,
@@ -648,11 +651,13 @@ export function useChatPageResourcesController({
 
   /** Screen capture entry: cross-platform snip+crop when supported, else native macOS screenshot. */
   const handleCapture = useCallback(async () => {
-    if (!activeSlotRef.current) return
+    // Locked by a memory-mode switch: a capture finishing after the upload
+    // handover would land in the slot being deleted and vanish.
+    if (!activeSlotRef.current || composerLockedRef.current) return
     snipSlotRef.current = activeSlotRef.current
     if (!screenSnipSupported) { takeScreenshot(); return }
     await snipFrom(() => captureScreen())
-  }, [snipSlotRef, activeSlotRef, takeScreenshot, snipFrom])
+  }, [composerLockedRef, snipSlotRef, activeSlotRef, takeScreenshot, snipFrom])
 
   // The Web Preview tab's crop button asks for an area screenshot via a window
   // event. Same crop→attach pipeline as the composer button, but capture pre-
@@ -661,14 +666,14 @@ export function useChatPageResourcesController({
   // no prompt either way via setDisplayMediaRequestHandler.)
   useEffect(() => {
     const onSnip = async () => {
-      if (!activeSlotRef.current) return
+      if (!activeSlotRef.current || composerLockedRef.current) return
       snipSlotRef.current = activeSlotRef.current
       if (!screenSnipSupported) { takeScreenshot(); return }
       await snipFrom(() => captureScreen(currentTabCaptureDeps()))
     }
     window.addEventListener(PREVIEW_SNIP_EVENT, onSnip)
     return () => window.removeEventListener(PREVIEW_SNIP_EVENT, onSnip)
-  }, [snipSlotRef, activeSlotRef, takeScreenshot, snipFrom])
+  }, [composerLockedRef, snipSlotRef, activeSlotRef, takeScreenshot, snipFrom])
 
   // Each upload's controller is registered per slot in the shared
   // composerSendHolds registry, not kept on this hook: the hold outlives a
@@ -713,10 +718,6 @@ export function useChatPageResourcesController({
     const controller = new AbortController()
     registerComposerUpload(requestSlot, controller)
     let completedPaths: string[] = []
-    // A memory-mode switch can retire `requestSlot` while this upload runs;
-    // the pin keeps its succession edge alive so the completion lands in the
-    // replacement instead of the deleted slot's draft.
-    pinSlotSuccession(requestSlot)
     try {
       const res = await api.uploadFiles(files, controller.signal)
       if (res.error) {
@@ -735,20 +736,13 @@ export function useChatPageResourcesController({
         setUploadError(i18nT('pages.chatPage.upload_failed_check_file_type_and_size_max_50_mb'))
       }
     } finally {
+      // Where THIS upload lives now: the replacement when a memory-mode switch
+      // handed it over (with its hold) while it ran, else where it started.
+      const landing = composerUploadSlot(controller) ?? requestSlot
       // Drop only THIS request's controller: the registry keeps Cancel offered
       // while a sibling upload of the slot is still running.
-      unregisterComposerUpload(requestSlot, controller)
-      // The paths land in the slot that is alive now (the replacement, when a
-      // memory-mode switch retired `requestSlot`), while the hold is released
-      // on the slot that took it.
-      const landing = resolveSlotSuccession(requestSlot)
-      if (landing === requestSlot) {
-        finishComposerAttachment(requestSlot, completedPaths)
-      } else {
-        landComposerAttachments(landing, completedPaths)
-        releaseComposerSend(requestSlot)
-      }
-      releaseSlotSuccession(requestSlot)
+      unregisterComposerUpload(landing, controller)
+      finishComposerAttachment(landing, completedPaths)
       // Unchanged from main, and still wrong for concurrent uploads: the first
       // request to settle clears the shared flag while a sibling runs. Left
       // alone deliberately -- the cancel control reads the registry, not this.
@@ -811,6 +805,7 @@ export function useChatPageResourcesController({
   }, [drafts, saveDrafts, activeSlotRef, setInput])
 
   const handleDrop = useCallback((dataTransfer: DataTransfer) => {
+    if (composerLockedRef.current) return
     // Classify BEFORE acting (issue #743): a dropped folder inserts its path
     // into the composer as an `@rel/` token — the same reference the @-picker
     // stages — instead of taking the upload route, which cannot ingest a
@@ -838,7 +833,13 @@ export function useChatPageResourcesController({
     if (files.length) {
       uploadFiles(files)
     }
-  }, [currentProjectRef, inputRef, voiceCaretRef, voicePendingCaretRef, setInput, uploadFiles])
+  }, [composerLockedRef, currentProjectRef, inputRef, voiceCaretRef, voicePendingCaretRef, setInput, uploadFiles])
+  /** The composer's own paste/attach entry: refused while it is locked, unlike
+   *  a snip or panel annotation, which name the slot they land in. */
+  const composerUploadFiles = useCallback((files: File[]) => {
+    if (composerLockedRef.current) return
+    return uploadFiles(files)
+  }, [composerLockedRef, uploadFiles])
   const { active: dragOver, dropTargetProps } = useChatFileDrop(handleDrop)
   return {
     tabsCtl,
@@ -871,6 +872,7 @@ export function useChatPageResourcesController({
     handleSnipComplete,
     handleSnipCancel,
     uploadFiles,
+    composerUploadFiles,
     cancelUpload,
     uploadCancellable,
     handleOptimizeResult,
