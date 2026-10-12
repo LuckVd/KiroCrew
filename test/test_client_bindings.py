@@ -257,7 +257,7 @@ _MEMBERS: dict[str, tuple[str, object, str, str]] = {
     "_write_response_bounded": ("function", True, "1aa0c9bf750c", "client_transport"),
     "acp_config_options": ("property", False, "3b4687b0c546", "client"),
     "agent_version": ("property", False, "bb418bb7ece8", "client"),
-    "approve_tool": ("function", True, "499900531bc9", "client_permissions"),
+    "approve_tool": ("function", True, "d9f85d56922f", "client_permissions"),
     "authored_spec_declares_zero_tools": ("function", False, "a6632a57e602", "client_mcp_array"),
     "available_models": ("function", False, "92d6193dbe19", "client_model_selection"),
     "backend": ("property", False, "bb418bb7ece8", "client"),

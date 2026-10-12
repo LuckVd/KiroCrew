@@ -242,9 +242,9 @@ async def _write_response_bounded(
     response condition a closed pipe reports as an error, so it is mapped to
     the same exception: ``AcpProcessDied`` sends the caller down the existing
     session-reset + bounded-requeue recovery instead of hanging. The request
-    id appears only through ``_loggable_request_id``. ``before_write`` runs
+    id appears only through ``_loggable_request_id``. *before_write* runs
     under the lock right before the frame is written and may raise to abort
-    it with nothing written.
+    the write: no byte of the frame is written then.
     """
     assert self._process is not None and self._process.stdin is not None
     if await write_response_frame_bounded(
