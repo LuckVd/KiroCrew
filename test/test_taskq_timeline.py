@@ -59,16 +59,16 @@ def store(tmp_path: Path, clock: Clock):
 
 
 @pytest.fixture(autouse=True)
-def _isolated_home(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+def _isolated_home(tmp_path: Path, _floor_monkeypatch: pytest.MonkeyPatch) -> None:
     """Every test writes into its own data home, never the live one."""
-    monkeypatch.setenv("KIROCREW_HOME", str(tmp_path / "home"))
+    _floor_monkeypatch.setenv("KIROCREW_HOME", str(tmp_path / "home"))
 
 
 @pytest.fixture(autouse=True)
-def _fresh_monitor(monkeypatch: pytest.MonkeyPatch):
+def _fresh_monitor(_floor_monkeypatch: pytest.MonkeyPatch):
     """A private health monitor, as the tasks API tests use."""
     mon = session_health.SessionHealthMonitor(include_log_scan=False)
-    monkeypatch.setattr(session_health, "_default_monitor", mon)
+    _floor_monkeypatch.setattr(session_health, "_default_monitor", mon)
     yield mon
 
 
@@ -351,6 +351,24 @@ def test_the_queue_tail_is_the_callers_bound_and_says_when_it_is_reached(
     assert "- task_events: truncated (tail_limit), 3 entries" in out.markdown
 
 
+def test_a_history_exactly_as_long_as_the_bound_is_not_called_truncated(
+    store: TaskStore, clock: Clock
+) -> None:
+    _run_row(store, clock, "s1")
+    n = len(store.events("s1", limit=200))
+    assert n == 4
+    out = _render(store, "s1", events_limit=n)
+    assert out is not None
+    assert len(_entries(out.markdown)) == n
+    assert (out.streams[0].status, out.streams[0].reason) == (tl.STATUS_OK, "")
+    assert "truncated" not in out.markdown
+    # one row fewer than the history, and the tail is truncated again
+    out = _render(store, "s1", events_limit=n - 1)
+    assert out is not None
+    assert len(_entries(out.markdown)) == n - 1
+    assert out.streams[0].status == tl.STATUS_TRUNCATED
+
+
 def test_the_session_log_keeps_the_newest_entries_past_its_bound(
     store: TaskStore, clock: Clock, monkeypatch: pytest.MonkeyPatch
 ) -> None:
@@ -434,6 +452,56 @@ def test_workflow_events_without_a_readable_time_are_counted_not_placed(
     assert out.streams[2].count == 1 and out.streams[2].dropped == 1
 
 
+@pytest.mark.parametrize(
+    ("stream", "bad"),
+    [
+        (tl.STREAM_TASK_EVENTS, float("inf")),
+        (tl.STREAM_TASK_EVENTS, float("nan")),
+        (tl.STREAM_TASK_EVENTS, 1e20),
+        (tl.STREAM_CREW_LOG, 10**20),
+        (tl.STREAM_CREW_LOG, 10**400),
+        (tl.STREAM_CREW_LOG, float("inf")),
+        (tl.STREAM_WORKFLOW, "0001-01-01T00:00:00+14:00"),
+        (tl.STREAM_WORKFLOW, "9999-12-31T23:59:59-14:00"),
+    ],
+)
+def test_a_time_no_clock_can_spell_is_counted_not_placed(stream: str, bad: Any) -> None:
+    """A time that parses but is not finite or lies outside the clock's years.
+
+    Placing it would raise when its line is stamped, and the whole view would fail
+    with it; it is counted like any other unreadable time instead.
+    """
+    row_id = "workflow:wf_1:agent1" if stream == tl.STREAM_WORKFLOW else "s1"
+    kind = model.KIND_WORKFLOW_AGENT if stream == tl.STREAM_WORKFLOW else model.KIND_SUBAGENT
+    queue = [_event(1, 5000.0, note="ok")]
+    crew = tl.CrewRead()
+    workflow: list[dict[str, Any]] = []
+    if stream == tl.STREAM_TASK_EVENTS:
+        queue.append(_event(2, bad, note="bad"))
+    elif stream == tl.STREAM_CREW_LOG:
+        rows = (_crew_row(1, 5000.5), {**_crew_row(2, 0.0), "time": bad})
+        crew = tl.CrewRead(rows=rows, found=True)
+    else:
+        workflow = [_wf_event(1, 5001.0), {**_wf_event(2, 0.0), "ts": bad}]
+    sources = _sources(crew_reader=lambda _s, _i: crew, workflow_events=lambda _r: workflow)
+    out = _render(_FakeStore(_record(row_id, kind), queue), row_id, sources=sources)
+    assert out is not None
+    report = out.streams[tl.STREAMS.index(stream)]
+    assert (report.count, report.dropped) == (1, 1)
+    assert f"- {stream}: ok, 1 entries, 1 without a readable time" in out.markdown
+
+
+def test_an_unreadable_order_leaves_the_entry_placed_by_its_time() -> None:
+    rows = ({**_crew_row(1, 5000.5), "seq": "first"}, {**_crew_row(2, 5000.6), "seq": 1e400})
+    out = _render(
+        _FakeStore(_record(), []),
+        "s1",
+        sources=_sources(crew_reader=lambda _s, _i: tl.CrewRead(rows=rows, found=True)),
+    )
+    assert out is not None
+    assert (out.streams[1].count, out.streams[1].dropped) == (2, 0)
+
+
 def test_a_naive_workflow_stamp_is_read_as_utc(store: TaskStore, clock: Clock) -> None:
     _run_row(store, clock, "workflow:wf_1:agent1", kind=model.KIND_WORKFLOW_AGENT)
     naive = datetime.fromtimestamp(5000.5, tz=timezone.utc).replace(tzinfo=None).isoformat()
@@ -506,6 +574,62 @@ def test_a_credential_cut_by_the_line_bound_is_redacted_before_the_cut(stream: s
     assert out is not None
     assert "AKIAIO" not in out.markdown and "AKIA" not in out.markdown
     assert "[REDACTED" in out.markdown
+
+
+class _Shown:
+    """A leaf JSON cannot encode, so the serializer renders it through ``__str__``."""
+
+    def __init__(self, text: str) -> None:
+        self._text = text
+
+    def __str__(self) -> str:
+        return self._text
+
+
+#: Long enough that the serialized value runs past the cut with the planted id
+#: across it, short enough that the id starts before the cut.
+_PAD = "x" * 285
+
+
+def _strings_only(value: Any) -> Any:
+    """The route's scrubber applied to strings alone: a mapping keeps keys JSON cannot sort."""
+    return tasks_mod._scrub_value(value) if isinstance(value, str) else value
+
+
+@pytest.mark.parametrize("stream", _STREAMS)
+@pytest.mark.parametrize(
+    ("plant", "scrub"),
+    [
+        (lambda key: {key: {f"{_PAD} {SECRET}": 1}}, tasks_mod._scrub_value),
+        (lambda key: {key: _Shown(f"{_PAD} {SECRET}")}, tasks_mod._scrub_value),
+        (lambda key: {key: {f"{_PAD} {SECRET}": 1, 2: 3}}, _strings_only),
+    ],
+    ids=["nested-key", "str-rendered-leaf", "repr-fallback"],
+)
+def test_text_the_serializer_adds_is_scrubbed_before_the_cut(
+    stream: str, plant: Any, scrub: Any
+) -> None:
+    """A mapping key or a leaf rendered through ``str`` is text the leaf scrub never saw.
+
+    It reaches the line through serialization, and the cut that follows would keep
+    a prefix of a credential that no pattern recognises.
+    """
+    fake, row_id, sources = _planted(stream, plant)
+    out = _render(fake, row_id, sources=sources, scrub=scrub)
+    assert out is not None
+    leaked = [SECRET[:n] for n in range(4, len(SECRET) + 1) if SECRET[:n] in out.markdown]
+    assert leaked == []
+    assert "[REDACTED" in out.markdown
+
+
+@pytest.mark.parametrize("stream", _STREAMS)
+def test_a_benign_nested_mapping_still_renders_whole(stream: str) -> None:
+    nested = {"step": {"name": "build", "count": 2, "ok": True}}
+    fake, row_id, sources = _planted(stream, lambda key: {key: nested})
+    out = _render(fake, row_id, sources=sources)
+    assert out is not None
+    assert '={"step":{"count":2,"name":"build","ok":true}}' in out.markdown
+    assert "[REDACTED" not in out.markdown
 
 
 @pytest.mark.parametrize("stream", _STREAMS)
@@ -1106,6 +1230,7 @@ _ALLOWED_IMPORTS = {
     "__future__",
     "json",
     "logging",
+    "math",
     "collections.abc",
     "dataclasses",
     "datetime",

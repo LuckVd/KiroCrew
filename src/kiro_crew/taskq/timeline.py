@@ -14,11 +14,13 @@ fold and ``read_page``; the workflow side goes through the run registry.
 
 Scrubbing belongs to the caller and is not optional. ``scrub`` is a required
 argument with no default, so there is no path that renders unscrubbed text. It
-is applied twice: to every event's data BEFORE anything is flattened or cut (a
-credential is matched whole, never as the prefix a cut leaves), and to every
-rendered line, which also covers the labels a hostile or damaged store could
-put in a ``kind`` or a ``type``. The dashboard route passes the same helper it
-scrubs its other task payloads with.
+is applied to every event's data before anything is flattened, to the text of
+every value and label before it is cut (serialization brings back mapping keys
+and leaves rendered through ``str``, which the data pass leaves as they are,
+and a credential is matched whole, never as the prefix a cut leaves), and to
+every rendered line, which also covers the labels a hostile or damaged store
+could put in a ``kind`` or a ``type``. The dashboard route passes the same
+helper it scrubs its other task payloads with.
 
 A stream that cannot be read is reported, not dropped: each stream carries a
 :class:`StreamReport` whose status is ``ok``, ``absent``, ``truncated`` or
@@ -38,6 +40,7 @@ from __future__ import annotations
 
 import json
 import logging
+import math
 from collections.abc import Callable, Mapping, Sequence
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
@@ -200,36 +203,49 @@ class _Item:
 # ── value rendering ──────────────────────────────────────────────────────────
 
 
-def _one_line(text: str) -> str:
-    """*text* on one line, cut at :data:`VALUE_MAX_CHARS`.
+def _one_line(text: str, scrub: Callable[[Any], Any]) -> str:
+    """*text* scrubbed whole, then put on one line and cut at :data:`VALUE_MAX_CHARS`.
 
-    Called only on values that were scrubbed whole first: cutting a raw value
-    could leave the prefix of a credential that no pattern recognises.
+    The scrubber runs before the cut, because cutting first could leave the
+    prefix of a credential that no pattern recognises. Every value and label
+    is cut here, so none is cut unscrubbed.
     """
-    flat = " ".join(text.split())
+    flat = " ".join(str(scrub(text)).split())
     if len(flat) > VALUE_MAX_CHARS:
         return flat[: VALUE_MAX_CHARS - len(_ELLIPSIS)] + _ELLIPSIS
     return flat
 
 
-def _value(value: Any) -> str:
+def _value(value: Any, scrub: Callable[[Any], Any]) -> str:
+    """One value on one scrubbed line.
+
+    A value that is not a string is serialized, and the serialized text is what
+    gets scrubbed: it carries mapping keys and leaves rendered through ``str``,
+    which the scrub of the data in :func:`_mapping` leaves as they are.
+    """
     if isinstance(value, str):
-        return _one_line(value)
+        return _one_line(value, scrub)
     try:
-        return _one_line(json.dumps(value, sort_keys=True, default=str, separators=(",", ":")))
+        text = json.dumps(value, sort_keys=True, default=str, separators=(",", ":"))
     except (TypeError, ValueError):
-        return _one_line(repr(value))
+        text = repr(value)
+    return _one_line(text, scrub)
 
 
-def _describe(data: Mapping[str, Any], *, skip: frozenset[str] = frozenset()) -> str:
+def _describe(
+    data: Mapping[str, Any],
+    scrub: Callable[[Any], Any],
+    *,
+    skip: frozenset[str] = frozenset(),
+) -> str:
     """``from -> to`` when the data carries a transition, then ``key=value`` pairs."""
     head = ""
     omit = set(skip)
     if "from" in data and "to" in data:
-        head = f"{_value(data['from'])} -> {_value(data['to'])}"
+        head = f"{_value(data['from'], scrub)} -> {_value(data['to'], scrub)}"
         omit |= {"from", "to"}
     pairs = [
-        f"{key}={_value(val)}"
+        f"{key}={_value(val, scrub)}"
         for key, val in sorted(data.items(), key=lambda kv: str(kv[0]))
         if key not in omit
     ]
@@ -242,6 +258,32 @@ def _stamp(ts: float) -> str:
     return moment.strftime("%Y-%m-%dT%H:%M:%S.") + f"{moment.microsecond // 1000:03d}Z"
 
 
+def _seconds(value: Any, *, per_second: float = 1.0) -> float | None:
+    """A stored time as epoch seconds :func:`_stamp` can spell, else ``None``.
+
+    A damaged or hostile store can hold any number that parses: ``inf``,
+    ``nan``, or an instant outside the years the clock can spell. Each would
+    raise when its line is stamped and fail the whole view, so the caller
+    counts it as an unreadable time instead.
+    """
+    try:
+        seconds = float(value) / per_second
+        if not math.isfinite(seconds):
+            return None
+        _stamp(seconds)
+    except (TypeError, ValueError, OverflowError, OSError):
+        return None
+    return seconds
+
+
+def _order(value: Any) -> int:
+    """A stream's own order for one entry; 0 when it does not read as an integer."""
+    try:
+        return int(value or 0)
+    except (TypeError, ValueError, OverflowError):
+        return 0
+
+
 def _mapping(scrub: Callable[[Any], Any], data: Any) -> dict[str, Any]:
     """*data* scrubbed leaf by leaf, as a plain dict ({} when it is not a mapping)."""
     if not isinstance(data, Mapping):
@@ -251,27 +293,33 @@ def _mapping(scrub: Callable[[Any], Any], data: Any) -> dict[str, Any]:
 
 
 def _text(scrub: Callable[[Any], Any], value: Any) -> str:
-    cleaned = scrub(str(value if value is not None else ""))
-    return _one_line(str(cleaned))
+    return _one_line(str(value if value is not None else ""), scrub)
 
 
 # ── the three streams ────────────────────────────────────────────────────────
 
 
-def _task_event_items(events: Sequence[Any], scrub: Callable[[Any], Any]) -> list[_Item]:
+def _task_event_items(
+    events: Sequence[Any], scrub: Callable[[Any], Any]
+) -> tuple[list[_Item], int]:
     items: list[_Item] = []
+    dropped = 0
     for event in events:
+        ts = _seconds(getattr(event, "ts", 0.0) or 0.0)
+        if ts is None:
+            dropped += 1
+            continue
         data = _mapping(scrub, getattr(event, "data", None))
         items.append(
             _Item(
-                ts=float(getattr(event, "ts", 0.0) or 0.0),
+                ts=ts,
                 stream=STREAM_TASK_EVENTS,
-                order=int(getattr(event, "seq", 0) or 0),
+                order=_order(getattr(event, "seq", 0)),
                 label=_text(scrub, getattr(event, "kind", "")),
-                detail=_describe(data),
+                detail=_describe(data, scrub),
             )
         )
-    return items
+    return items, dropped
 
 
 def read_child_entries(slot_key: str, agent_id: str) -> CrewRead:
@@ -325,17 +373,19 @@ def _crew_stream(
     dropped = 0
     for row in found.rows:
         millis = row.get("time")
-        if isinstance(millis, bool) or not isinstance(millis, (int, float)):
+        is_number = isinstance(millis, (int, float)) and not isinstance(millis, bool)
+        ts = _seconds(millis, per_second=1000.0) if is_number else None
+        if ts is None:
             dropped += 1
             continue
         data = _mapping(scrub, row.get("data"))
         items.append(
             _Item(
-                ts=float(millis) / 1000.0,
+                ts=ts,
                 stream=STREAM_CREW_LOG,
-                order=int(row.get("seq") or 0),
+                order=_order(row.get("seq")),
                 label=_text(scrub, row.get("type")),
-                detail=_describe(data, skip=frozenset({"agent_id"})),
+                detail=_describe(data, scrub, skip=frozenset({"agent_id"})),
             )
         )
     status, reason = STATUS_OK if items else STATUS_ABSENT, "" if items else REASON_NO_RECORD
@@ -376,7 +426,8 @@ def _workflow_stream(
     items: list[_Item] = []
     dropped = 0
     for event in events:
-        ts = _iso_seconds(event.get("ts"))
+        parsed = _iso_seconds(event.get("ts"))
+        ts = None if parsed is None else _seconds(parsed)
         if ts is None:
             dropped += 1
             continue
@@ -385,9 +436,9 @@ def _workflow_stream(
             _Item(
                 ts=ts,
                 stream=STREAM_WORKFLOW,
-                order=int(event.get("seq") or 0),
+                order=_order(event.get("seq")),
                 label=_text(scrub, event.get("type")),
-                detail=_describe(data),
+                detail=_describe(data, scrub),
             )
         )
     status, reason = STATUS_OK if items else STATUS_ABSENT, "" if items else REASON_NO_RECORD
@@ -449,14 +500,22 @@ def render_timeline(
     record = store.get(task_id)
     if record is None:
         return None
-    events = list(store.events(task_id, limit=events_limit))
-    queue_items = _task_event_items(events, scrub)
+    # One row past the bound tells a tail that stopped at the bound from a task
+    # whose history is exactly the bound long: only the former is truncated.
+    probe = list(store.events(task_id, limit=events_limit + 1))
+    truncated = len(probe) > events_limit
+    events = probe[-events_limit:] if truncated else probe
+    queue_items, queue_dropped = _task_event_items(events, scrub)
     queue_status, queue_reason = (
         (STATUS_OK, "") if queue_items else (STATUS_ABSENT, REASON_NO_RECORD)
     )
-    if len(events) >= events_limit:
+    if truncated:
         queue_status, queue_reason = STATUS_TRUNCATED, REASON_TAIL_LIMIT
-    reports = [StreamReport(STREAM_TASK_EVENTS, queue_status, len(queue_items), queue_reason)]
+    reports = [
+        StreamReport(
+            STREAM_TASK_EVENTS, queue_status, len(queue_items), queue_reason, queue_dropped
+        )
+    ]
     crew_items, crew_report = _crew_stream(record, sources, scrub)
     workflow_items, workflow_report = _workflow_stream(task_id, sources, scrub)
     reports += [crew_report, workflow_report]

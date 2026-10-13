@@ -1112,9 +1112,11 @@ propagates.
 **Scrubbing.** `scrub` is a required argument with no default and the module
 defines and imports no scrubber; the route passes `tasks._scrub_value`, the helper
 every other task payload goes through. It is applied to each event's data before
-anything is flattened or cut (a value cut at `VALUE_MAX_CHARS` after scrubbing can
-never leave the prefix of a credential), to every label, and to every rendered
-line, so a damaged store's `kind`, `type` or row fields are scrubbed too.
+anything is flattened, to the serialized text of every value and to every label
+before it is cut at `VALUE_MAX_CHARS` (serialization brings back mapping keys and
+leaves rendered through `str`, which the data pass leaves as they are, so the cut
+never keeps the prefix of a credential), and to every rendered line, so a damaged
+store's `kind`, `type` or row fields are scrubbed too.
 
 **Route.** `GET /api/tasks/{task_id}/timeline` (`dashboard/handlers/tasks.py`
 `api_task_timeline`). It passes the dashboard's token middleware and then the
