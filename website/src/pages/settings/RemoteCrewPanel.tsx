@@ -1220,6 +1220,7 @@ function PrereqRow({
   rechecking,
   extraAction,
   error,
+  failure,
 }: {
   ok: boolean
   title: string
@@ -1233,6 +1234,10 @@ function PrereqRow({
   /** A failure of one of this row's own actions, rendered beside the buttons
    *  that caused it rather than in the page-level notices above the fold. */
   error?: string
+  /** The check's own failure diagnostic (a CLI error, a refused binary).
+   *  Shown in place of `detail`, through ErrorNotice, because it is the
+   *  outcome of something that failed rather than status text. */
+  failure?: string
 }) {
   return (
     <li className="flex items-start gap-3 py-2.5 border-b border-border last:border-b-0">
@@ -1241,7 +1246,13 @@ function PrereqRow({
       </span>
       <div className="min-w-0 flex-1">
         <div className="text-[13px] font-medium text-text-strong">{title}</div>
-        {detail ? <div className="text-[12px] text-muted mt-0.5 whitespace-pre-wrap">{detail}</div> : null}
+        {failure ? (
+          // askAgent ON: the launch form on this tab persists its size and
+          // account, so the navigation loses nothing.
+          <div className="mt-0.5">
+            <ErrorNotice variant="inline" messageClassName="whitespace-pre-wrap" message={failure} askAgent />
+          </div>
+        ) : detail ? <div className="text-[12px] text-muted mt-0.5 whitespace-pre-wrap">{detail}</div> : null}
         {command ? (
           <code className="block mt-1.5 rounded-md border border-border bg-bg-elevated px-2.5 py-1.5 font-mono text-[12px] text-accent overflow-x-auto">
             {command}
@@ -2576,7 +2587,17 @@ export function RemoteCrewPanel() {
                   title={i18nT('pages.settings.remoteCrewPanel.prereq_credentials')}
                   detail={preflight.reachable && preflight.account
                     ? i18nT('pages.settings.remoteCrewPanel.credentials_ok', { profile: checkedProfile || i18nT('pages.settings.remoteCrewPanel.no_profile_set'), account: preflight.account })
-                    : (preflight.detail || i18nT('pages.settings.remoteCrewPanel.credentials_bad'))}
+                    : ''}
+                  failure={preflight.reachable && preflight.account
+                    ? undefined
+                    : preflight.credential_helper_missing
+                      // The helper's name is the actionable part; the CLI's own
+                      // error stays underneath for anything the sentence misses.
+                      ? [
+                          i18nT('pages.settings.remoteCrewPanel.credentials_helper_missing', { name: preflight.credential_helper_missing }),
+                          preflight.detail,
+                        ].filter(Boolean).join('\n')
+                      : (preflight.detail || i18nT('pages.settings.remoteCrewPanel.credentials_bad'))}
                   onRecheck={runCheck}
                   rechecking={preflightQuery.isFetching}
                 />
@@ -2586,7 +2607,16 @@ export function RemoteCrewPanel() {
                 <PrereqRow
                   ok={preflight.session_manager_plugin}
                   title={i18nT('pages.settings.remoteCrewPanel.plugin')}
-                  detail={preflight.session_manager_plugin ? i18nT('pages.settings.remoteCrewPanel.plugin_ok') : i18nT('pages.settings.remoteCrewPanel.plugin_missing')}
+                  detail={preflight.session_manager_plugin
+                    ? i18nT('pages.settings.remoteCrewPanel.plugin_ok')
+                    : i18nT('pages.settings.remoteCrewPanel.plugin_missing')}
+                  failure={preflight.session_manager_plugin || !preflight.session_manager_plugin_refused_path
+                    ? undefined
+                    // Found but refused is not "not installed": the install
+                    // command would put the same refused file back.
+                    : preflight.session_manager_plugin_command
+                      ? i18nT('pages.settings.remoteCrewPanel.plugin_refused_fix', { path: preflight.session_manager_plugin_refused_path, reason: preflight.session_manager_plugin_refused_reason ?? '' })
+                      : i18nT('pages.settings.remoteCrewPanel.plugin_refused', { path: preflight.session_manager_plugin_refused_path, reason: preflight.session_manager_plugin_refused_reason ?? '' })}
                   command={preflight.session_manager_plugin ? undefined : (preflight.session_manager_plugin_command || undefined)}
                   onCopyCommand={
                     preflight.session_manager_plugin || !preflight.session_manager_plugin_command

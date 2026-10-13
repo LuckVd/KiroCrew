@@ -655,6 +655,58 @@ describe('RemoteCrewPanel', () => {
     expect(screen.queryByRole('button', { name: /Copy command/i })).not.toBeInTheDocument()
   })
 
+  it('reports a found-but-refused plugin with its reason and remedy, not as not installed', async () => {
+    // The install command would put the same refused file back, so the row must
+    // name the refusal and offer the command that clears it.
+    vi.mocked(api.listInstances).mockResolvedValue({ active: true, warm_set_cap: 5, instances: [] })
+    vi.mocked(api.cloudLaunches).mockResolvedValue({ jobs: [] })
+    vi.mocked(api.cloudPreflight).mockResolvedValue({
+      ...PREFLIGHT_OK,
+      session_manager_plugin: false,
+      session_manager_plugin_command: 'sudo chown -R root:wheel /usr/local/sessionmanagerplugin',
+      session_manager_plugin_refused_path: '/usr/local/sessionmanagerplugin/bin/session-manager-plugin',
+      session_manager_plugin_refused_reason: 'executable parent is owned by another user (uid 1501)',
+    })
+    const u = userEvent.setup()
+    renderWithProviders(<RemoteCrewPanel />)
+    await u.click(await screen.findByRole('button', { name: /Set up a new one/i }))
+
+    expect(
+      await screen.findByText(/Found at \/usr\/local\/sessionmanagerplugin\/bin\/session-manager-plugin.*owned by another user \(uid 1501\).*root-owned/),
+    ).toBeInTheDocument()
+    expect(screen.getByText('sudo chown -R root:wheel /usr/local/sessionmanagerplugin')).toBeInTheDocument()
+    expect(screen.queryByText(/Not installed/)).not.toBeInTheDocument()
+    // A refusal is a failed check, so it renders through ErrorNotice with the
+    // agent hand-off, not as muted status text.
+    const notice = screen.getByText(/Found at \/usr\/local\/sessionmanagerplugin/).closest('[role="alert"]') as HTMLElement
+    expect(notice).not.toBeNull()
+    expect(within(notice).getByRole('button', { name: /Ask the agent/i })).toBeInTheDocument()
+  })
+
+  it('names the credential_process helper the AWS CLI could not find', async () => {
+    vi.mocked(api.listInstances).mockResolvedValue({ active: true, warm_set_cap: 5, instances: [] })
+    vi.mocked(api.cloudLaunches).mockResolvedValue({ jobs: [] })
+    vi.mocked(api.cloudPreflight).mockResolvedValue({
+      ...PREFLIGHT_OK,
+      reachable: false,
+      account: '',
+      detail: "aws: [ERROR]: [Errno 2] No such file or directory: 'sso-cred-helper'",
+      credential_helper_missing: 'sso-cred-helper',
+    })
+    const u = userEvent.setup()
+    renderWithProviders(<RemoteCrewPanel />)
+    await u.click(await screen.findByRole('button', { name: /Set up a new one/i }))
+
+    expect(
+      await screen.findByText(/could not find sso-cred-helper on the gateway’s PATH.*credential_process/s),
+    ).toBeInTheDocument()
+    // The CLI failure renders through ErrorNotice with the agent hand-off.
+    const notice = screen.getByText(/could not find sso-cred-helper/).closest('[role="alert"]') as HTMLElement
+    expect(notice).not.toBeNull()
+    expect(notice).toHaveTextContent(/No such file or directory: 'sso-cred-helper'/)
+    expect(within(notice).getByRole('button', { name: /Ask the agent/i })).toBeInTheDocument()
+  })
+
   it('remembers the AWS profile across a remount and probes THAT account, not the default', async () => {
     // This panel unmounts when you visit another Settings section. Losing the
     // profile was worse than retyping: the committed value fell back to '', so the

@@ -166,6 +166,24 @@ reaches the dashboard on a *different* local port than the remote, opt that loca
 port into the CSRF allowlist — see
 [remote-and-mobile.md](remote-and-mobile.md#2-reach-it-from-a-laptop-or-phone).
 
+### Set-up pre-flight: credential helper not found, or plugin refused
+
+The **Set up a new one** pre-flight runs the AWS CLI from the gateway, and a
+gateway started from the Dock or Finder has a minimal `PATH`.
+
+- **"The AWS CLI could not find `<name>` on the gateway's PATH."** Your profile's
+  `credential_process` runs `<name>` by bare name, and it lives somewhere that
+  `PATH` does not reach (for example `~/.toolbox/bin` or `~/.local/bin`). Give it its
+  full path in `~/.aws/config`, e.g.
+  `credential_process = /Users/you/.local/bin/sso-cred-helper --profile work`, then
+  re-check.
+- **"Found at `<path>`, but … will not run it: `<reason>`."** The Session Manager
+  plugin is installed, but it failed the ownership check every program that
+  receives your AWS credentials must pass, so reinstalling it the same way does not
+  help. AWS's macOS package installs `/usr/local/sessionmanagerplugin` owned by its
+  build account, and for that case the row offers the fix: `sudo chown -R root:wheel
+  /usr/local/sessionmanagerplugin`. `kirocrew cloud doctor` reports the same.
+
 ### Non-fatal warnings you can ignore
 
 - **`ffmpeg: not found`**: only needed for speech-to-text. Install ffmpeg into
