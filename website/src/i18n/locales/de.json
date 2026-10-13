@@ -12285,7 +12285,7 @@
       "1_skipped_currently_selected": "(1 übersprungen — aktuell ausgewählt)",
       "no_sessions_match_folders": "Keine Sitzungen passen — nur ein Ordnername",
       "add_column_after_this_one": "Spalte nach dieser hinzufügen",
-      "agent_finished_your_turn": "Agent fertig — Sie sind dran",
+      "agent_finished_your_turn": "Agent fertig — du bist dran",
       "all_sessions": "Alle Sitzungen",
       "also_show_sessions_that_have_no_tags_at_all": "Auch Sitzungen anzeigen, die überhaupt keine Tags haben",
       "also_shows_untagged_sessions": "Zeigt auch Sitzungen ohne Tags",
@@ -19181,6 +19181,10 @@
     "state_removed": "entfernt",
     "driftHint": "Die Agent-Datei von {{member}} wurde außerhalb dieser Seite bearbeitet. Klicke auf „Änderung prüfen“, um die externe Bearbeitung zusammen mit deinem eigenen Entwurf zu sehen; „Speichern“ schreibt dann die Korrektur oder erklärt, warum es nicht möglich ist.",
     "sourceFailed": "Die gespeicherte Konfiguration konnte nicht validiert werden. Lade sie zum erneuten Versuch vom Server neu.",
-    "runtime_failed": "Laufzeit-Laden fehlgeschlagen. Die gespeicherte Version bleibt erhalten."
+    "runtime_failed": "Laufzeit-Laden fehlgeschlagen. Die gespeicherte Version bleibt erhalten.",
+    "server_verb_count": "{{on}} von {{total}} automatisch genehmigt",
+    "server_allow_aria": "{{server}} zulassen",
+    "server_no_verbs": "Keine Tools automatisch genehmigt",
+    "server_glob_covered": "Als Ganzes automatisch genehmigt — einzelne Tools in der Agent-Konfiguration bearbeiten"
   }
 }
