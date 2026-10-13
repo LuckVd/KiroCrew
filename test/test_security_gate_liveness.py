@@ -312,7 +312,14 @@ def _url_payload_command(n: int) -> str:
 #: ``launcher.terminate``. Ten lines, of which four are the comprehension and six the
 #: reason every entry in that list carries. No matching rule, no threshold and no pass
 #: moved -- a target was added to a list the gate already walks.
-_PACKAGE_LINE_BUDGET = 29_175
+#:
+#: Raised again, from 29,175, for the ssh-self floor's repeated-glob skip: an
+#: operand that is the same plain glob word the verb was read from (``* *`` in a
+#: cron schedule) expands to the same files, so only its one new operand, the
+#: program path it matches, is host-checked. One pattern, one branch and their
+#: comments; every other operand check is unchanged. The skip is bounded to
+#: an unbroken run of letter-free words, and the program-path check moved into a helper.
+_PACKAGE_LINE_BUDGET = 29_212
 
 #: Ceiling on any ONE file in the package. This is what the bound is really for --
 #: a package total says nothing about a single file growing back into a second

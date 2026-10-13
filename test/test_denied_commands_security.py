@@ -9419,6 +9419,228 @@ class TestSandboxEscapeSshSelf:
         assert _denied_by("ssh 127.0.0.? id") == self._RULE
         assert _denied_by("ssh remo?e.example.com id") is None
 
+    @pytest.mark.parametrize(
+        "text",
+        [
+            "* *",
+            "0 9 * * 1",
+            "*/5 * * * *",
+            "0 * * * *",
+            "* * * * * /usr/bin/backup",
+            "schedule: 30 2 1 * * (daily)",
+            "sudo * *",
+        ],
+    )
+    def test_repeated_glob_word_is_not_a_self_target(self, text):
+        # A cron schedule repeats ``*``.  Read as an argv, the first ``*`` can
+        # name an ssh-family program and the second one was checked as its
+        # self-host operand.  But the second copy expands to the same file
+        # list as the first, so it adds no name the verb word did not already
+        # supply, and a lone ``*`` is allowed.  Refusing it refused every
+        # cron expression in any command or tool argument.
+        assert not security._is_ssh_to_self(text)
+        assert _denied_by(text) is None
+
+    @pytest.mark.parametrize(
+        "cmd",
+        [
+            "* localhost",
+            "* * localhost",
+            "* * 127.0.0.1 id",
+            "* -o hostname=localhost *",
+            "s?h s?h localhost",
+            "s* *",
+            "s?h *",
+            "ssh *",
+            "ssh * *",
+            "/usr/bin/s?h localho?t id",
+            "* * 0",
+            # The repeated word's first match is the program PATH, so a
+            # ``host:`` prefix in it is a remote operand the second time.
+            "localhost:dir/s?p localhost:dir/s?p out",
+            "localhost:dir/r?ync localhost:dir/r?ync out",
+        ],
+    )
+    def test_repeated_glob_skip_keeps_every_other_self_target(self, cmd):
+        # The skip covers only the IDENTICAL glob word.  A different glob
+        # (``s* *``: ``*`` matches more files than ``s*``), a glob operand of a
+        # literal verb, and any literal self host after the repeated word
+        # (still in host position) stay refused.
+        assert _denied_by(cmd) == self._RULE
+
+    @pytest.mark.parametrize("verb", ["ssh", "sftp"])
+    @pytest.mark.parametrize(
+        "cmd",
+        [
+            "s?h -F /dev/null s?h id",
+            "s?h s?h id",
+            "* *",
+            "0 9 * * 1",
+            "* -o *",
+            "s?h.exe -F /dev/null s?h.exe id",
+        ],
+    )
+    def test_repeated_glob_still_checks_the_program_name_as_a_host(
+        self, monkeypatch, tmp_path, cmd, verb
+    ):
+        # Where ``s?h`` matches only ``ssh``, ``s?h -F /dev/null s?h id`` runs
+        # ``ssh -F /dev/null ssh id``: the repeated word's first match lands in
+        # host position.  A hosts file that aliases ``ssh`` to loopback makes
+        # that a self dial, so the skip must still check that name.
+        hosts = tmp_path / "hosts"
+        hosts.write_text("127.0.0.1 localhost ssh ssh.exe\n")
+        monkeypatch.setattr(_argv_floor, "_hosts_file_paths", lambda: (str(hosts),))
+        monkeypatch.setattr(_argv_floor, "_HOSTS_FILE_CACHE", {})
+        self._pin_glob_verb(monkeypatch, verb)
+        assert _denied_by(cmd) == self._RULE
+
+    # ``_ssh_family_verb`` reads a glob word's verb out of an unordered set, so
+    # which of the four a ``*`` stands for varies with PYTHONHASHSEED.  These
+    # tests pin it, once per verb, so no seed can hide a verdict.
+    @staticmethod
+    def _pin_glob_verb(monkeypatch, verb):
+        real = _argv_floor._ssh_family_verb
+        monkeypatch.setattr(
+            _argv_floor,
+            "_ssh_family_verb",
+            lambda tok: verb if real(tok) and set("*?[") & set(tok) else real(tok),
+        )
+
+    @pytest.mark.parametrize("verb", ["scp", "rsync"])
+    @pytest.mark.parametrize(
+        "cmd",
+        [
+            # The repeated word inside a command substitution expands in the
+            # directory the substitution changed to, not where the verb word
+            # did: ``* $(cd h; echo *)`` with ``h/localhost`` runs ``scp localhost``.
+            "* $(cd /tmp/h; echo *)",
+            "* $(cd /tmp/h; echo * )",
+            "* $( cd /tmp && ls * )",
+            "* $(cd /tmp/h; echo $(ls * ))",
+            "* $( echo $( cd /tmp/h; echo * ) )",
+            # The same word later in the argv, behind any other token (also
+            # through backticks, which the token view flattens).
+            "* ls *",
+            "* x *",
+            "* `true` *",
+            "* `echo \\`ls *\\``",
+        ],
+    )
+    def test_repeated_glob_skip_needs_an_unbroken_run(self, monkeypatch, verb, cmd):
+        # Red on ff27703ca2 (the skip applied to the word anywhere in the argv);
+        # every row is refused on main under these two verbs.
+        self._pin_glob_verb(monkeypatch, verb)
+        assert _denied_by(cmd) == self._RULE
+
+    @pytest.mark.parametrize("verb", ["ssh", "scp", "sftp", "rsync"])
+    @pytest.mark.parametrize("cmd", ["[SL]* [sl]*", "[sl]* [sl]*"])
+    def test_repeated_glob_skip_is_letter_free_only(self, monkeypatch, verb, cmd):
+        # A LETTERED repeat is read from folded text: ``[SL]* [sl]*`` is one
+        # word here, two different case-sensitive globs to bash (``SSH
+        # localhost`` on a case-insensitive filesystem).  Red on ff27703ca2.
+        self._pin_glob_verb(monkeypatch, verb)
+        assert _denied_by(cmd) == self._RULE
+
+    @pytest.mark.parametrize("verb", ["ssh", "scp", "sftp", "rsync"])
+    @pytest.mark.parametrize(
+        "cmd", ["s?h remote < s?h", "s?h < s?h remote", "s?h remote s?h", "s?h remote s?h out"]
+    )
+    def test_repeated_glob_program_check_skips_redirects_and_data(
+        self, monkeypatch, tmp_path, verb, cmd
+    ):
+        # With ``ssh`` aliased to loopback, the program-name check must only
+        # fire where the word is a host: not a redirect filename, not the
+        # remote command of ssh/sftp, not a bare scp/rsync file operand.
+        # Main allows every row; the first draft refused them.
+        hosts = tmp_path / "hosts"
+        hosts.write_text("127.0.0.1 localhost ssh ssh.exe\n")
+        monkeypatch.setattr(_argv_floor, "_hosts_file_paths", lambda: (str(hosts),))
+        monkeypatch.setattr(_argv_floor, "_HOSTS_FILE_CACHE", {})
+        self._pin_glob_verb(monkeypatch, verb)
+        assert _denied_by(cmd) is None
+
+    # Verdicts of clean main 370b190d8a, recorded per verb a glob word can
+    # stand for.  The branch may stop refusing ONLY the allowances below.
+    _MAIN_REFUSED_UNDER_EVERY_VERB = (
+        "* *",
+        "0 9 * * 1",
+        "*/5 * * * *",
+        "0 * * * *",
+        "* * * * * /usr/bin/backup",
+        "schedule: 30 2 1 * * (daily)",
+        "sudo * *",
+        "* * id",
+        "* 5 * * *",
+        "* * x *",
+        "* * $(cd /tmp/h; echo *)",
+        "* {*,x}",
+        "[SL]* [sl]*",
+        "[sl]* [sl]*",
+        "s* *",
+        "s?h *",
+        "ssh *",
+        "ssh * *",
+        "s?h s?h localhost",
+        "/usr/bin/s?h localho?t id",
+        "localhost:dir/s?p localhost:dir/s?p out",
+        "localhost:dir/r?ync localhost:dir/r?ync out",
+        "* localhost",
+        "* * localhost",
+        "* * 127.0.0.1 id",
+        "* -o hostname=localhost *",
+        "* * 0",
+        "* -o *",
+        "ssh user@localhost id",
+    )
+    _MAIN_REFUSED_UNDER_SCP_AND_RSYNC = (
+        "* $(cd /tmp/h; echo *)",
+        "* $(cd /tmp/h; echo * )",
+        "* $( cd /tmp && ls * )",
+        "* $(cd /tmp/h; echo $(ls * ))",
+        "* $( echo $( cd /tmp/h; echo * ) )",
+        "* ls *",
+        "* x *",
+        "* `true` *",
+        "* `echo \\`ls *\\``",
+    )
+    _REPEATED_GLOB_INTENDED_ALLOWANCES = frozenset(
+        {
+            "* *",
+            "0 9 * * 1",
+            "*/5 * * * *",
+            "0 * * * *",
+            "* * * * * /usr/bin/backup",
+            "schedule: 30 2 1 * * (daily)",
+            "sudo * *",
+            # The documented residual: main already allows ``* id``, which
+            # expands to the same self dial in the same directory.
+            "* * id",
+        }
+    )
+    # Rows that extend a leading ``* *`` run: main refuses them, and a verb
+    # that reads the tail as a host (ssh, sftp) stops, as for ``* * id``.
+    _REPEATED_GLOB_RUN_EXTENSIONS = frozenset({"* 5 * * *", "* * x *", "* * $(cd /tmp/h; echo *)"})
+
+    @pytest.mark.parametrize("verb", ["ssh", "scp", "sftp", "rsync"])
+    def test_repeated_glob_skip_refuses_a_superset_of_main(self, monkeypatch, verb):
+        # Differential against the recorded main verdicts: everything main
+        # refused is still refused except the intended allowances.
+        self._pin_glob_verb(monkeypatch, verb)
+        refused = list(self._MAIN_REFUSED_UNDER_EVERY_VERB)
+        if verb in ("scp", "rsync"):
+            refused += self._MAIN_REFUSED_UNDER_SCP_AND_RSYNC
+        dropped = [
+            cmd
+            for cmd in refused
+            if cmd not in self._REPEATED_GLOB_INTENDED_ALLOWANCES
+            and cmd not in self._REPEATED_GLOB_RUN_EXTENSIONS
+            and _denied_by(cmd) is None
+        ]
+        assert dropped == [], f"main refusals this branch drops under {verb}: {dropped}"
+        for cmd in self._REPEATED_GLOB_INTENDED_ALLOWANCES:
+            assert cmd in self._MAIN_REFUSED_UNDER_EVERY_VERB
+            assert _denied_by(cmd) is None, cmd
+
     def test_dns_alias_fails_closed_until_resolved(self, monkeypatch):
         # A hostname this floor cannot classify textually may still resolve
         # to a loopback or local address (a DNS alias).  The verdict comes

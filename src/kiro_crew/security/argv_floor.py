@@ -1321,6 +1321,21 @@ _FLAT_SUBSTITUTION_RE = re.compile(r"\$\(([^()`$]*)\)|`([^`()$]*)`")
 # deny floor cannot consult the filesystem, so a pattern that CAN match is
 # treated as matching -- an over-approximation toward deny.
 _GLOB_CHARS: frozenset[str] = frozenset("*?[")
+# A glob word with no quote, expansion or operator: two copies expand alike.
+_PLAIN_GLOB_WORD_RE = re.compile(r"(?=[^*?\[]*[*?\[])[a-z0-9_.*?\[\]/+:,%@=-]+\Z")
+
+
+def _repeated_glob_program_targets_self(glob_word: str, host_slot: bool) -> bool:
+    """True when an ssh-family path *glob_word* matches is a self host (``s?h x s?h``)."""
+    head, sep, base = glob_word.rpartition("/")
+    for cand in (v + ext for v in _SSH_FAMILY_VERBS for ext in ("", ".exe")):
+        exe = cand.endswith(".exe")
+        if fnmatch.fnmatchcase(cand, base) and (
+            _operand_targets_self(head + sep + cand, host_position=host_slot and not exe)
+            or (host_slot and exe and not sep and _hosts_file_verdict(cand) is True)
+        ):
+            return True
+    return False
 
 
 def _glob_can_name_ssh_verb(probe: str) -> bool:
@@ -3232,6 +3247,12 @@ def _is_ssh_to_self(text_lower: str) -> bool:
                 if not rsync_rsh_pending and not rsync_rsh_exported and rsync_rsh_carried_self:
                     return True
             positional_pending = verb in ("ssh", "sftp")
+            glob_verb_word = (
+                token
+                if _PLAIN_GLOB_WORD_RE.fullmatch(token)
+                and not _GLOB_CHARS.intersection(token.rpartition("/")[0])
+                else None
+            )
             option_shadow = False  # previous token was an option that may take a value
             value_shadow = False  # previous token was an option that CONSUMES a value
             value_shadow_ambiguous = False  # ...but its folded letter is case-ambiguous
@@ -3242,8 +3263,11 @@ def _is_ssh_to_self(text_lower: str) -> bool:
             proxyjump_value_pending = False  # previous token was a detached -J (value = hop chain)
             opts_terminated = False  # an exact ``--`` ended option parsing (POSIX)
             depth = 0
+            chain = True  # all tokens so far are the verb word or a repeat of it
             for arg in tokens[i + 1 :]:
                 stripped = arg.strip("\"'")
+                checkable = positional_pending or verb in ("scp", "rsync")
+                repeated = arg == glob_verb_word and not option_shadow  # first match: the program
                 # Classify BEFORE testing whether the token ends the argv
                 # (same order as the self-kill floor): a quoted remote payload
                 # may contain separator characters, and for scp/rsync a
@@ -3418,11 +3442,24 @@ def _is_ssh_to_self(text_lower: str) -> bool:
                     forward_value_letter = ""
                     option_shadow = False
                     value_shadow = False
+                elif repeated and chain and not any(map(str.isalpha, arg)):
+                    # ``* *`` (a cron line) expands like the verb word: skip the glob
+                    # check, but only in an unbroken run and not for a lettered word.
+                    if checkable and _repeated_glob_program_targets_self(arg, positional_pending):
+                        return True
+                    option_shadow = False
+                    value_shadow = False
+                    value_shadow_ambiguous = False
                 else:
                     # An operand, or the value of the preceding option.  Check
                     # it either way (fail-closed — see the docstring); only an
                     # UNSHADOWED operand consumes the ssh/sftp positional slot.
-                    checkable = positional_pending or verb in ("scp", "rsync")
+                    if (
+                        repeated
+                        and checkable
+                        and _repeated_glob_program_targets_self(arg, positional_pending)
+                    ):
+                        return True
                     if checkable and _operand_targets_self(
                         _unmask_separators(stripped),
                         host_position=positional_pending
@@ -3440,6 +3477,7 @@ def _is_ssh_to_self(text_lower: str) -> bool:
                     option_shadow = False
                     value_shadow = False
                     value_shadow_ambiguous = False
+                chain = chain and repeated
                 depth += _substitution_depth_delta(arg)
                 if depth <= 0 and _ends_argv(arg):
                     break
