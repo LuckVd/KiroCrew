@@ -414,14 +414,22 @@ describe('ChatPage file-chip remove parity', { timeout: 15_000 }, () => {
     const taB = screen.getByLabelText('Message input') as HTMLTextAreaElement
     fireEvent.change(taB, { target: { value: '@mai' } })
     // The picker's `placeholderData` keeps slot-a's LAST resolved results on
-    // screen while slot-b's own (differently-rooted) query is in flight, so
-    // "main.ts" can satisfy findByText from the stale placeholder alone.
-    // Wait for the query to actually have been ISSUED with slot-b's project
-    // before trusting the row -- otherwise a click can land while the menu is
-    // still showing slot-a's root and relativize against the wrong one.
+    // screen while slot-b's own (differently-rooted) query is in flight.
+    // "main.ts" appears in both result sets (the name is project-independent),
+    // so row presence alone cannot tell stale placeholder from live data.
+    // The click must not land while rootRef.current in FilePickerMenu still
+    // holds slot-a's root ('/repo'): selectionFor() would then relativize
+    // against the wrong root and insert '@src/main.ts' instead of '@main.ts'.
+    // Await the API call, then also await the mock's own Promise and flush
+    // React's batched update so rootRef.current advances to '/repo/src'.
     await waitFor(() => expect(vi.mocked(api.fileSearch).mock.calls.some(c => c[1] === '/repo/src')).toBe(true))
-    const rowB = await screen.findByText('main.ts', undefined, { timeout: 3000 })
-    fireEvent.mouseDown(rowB)
+    await vi.mocked(api.fileSearch).mock.results.at(-1)?.value
+    await new Promise(r => setTimeout(r, 0))
+    await waitFor(() => {
+      const opt = [...document.querySelectorAll('[role="option"]')].find(el => el.textContent?.includes('main.ts'))
+      if (!opt) throw new Error('main.ts option row not found yet')
+      fireEvent.mouseDown(opt)
+    }, { timeout: 3000 })
     // Under slot-b's project the SAME absolute file relativizes to a bare
     // `@main.ts`, overwriting pickedFileTokens' shared entry for this path.
     await waitFor(() => expect(taB.value).toContain('@main.ts'))
