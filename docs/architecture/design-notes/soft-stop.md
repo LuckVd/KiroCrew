@@ -376,7 +376,10 @@ the partial assistant response, in order, as `[Steered mid-turn] <text>`. When a
 nudge, a sub-agent completion or an `inject` row sits between them, or the window
 holds no opener, the steer stays the request, because any of those may have opened
 the turn. The last 20 rows come from `ConversationLog.read_messages_chained_tail`,
-which keeps `meta`; `recent()` projects rows to role and content only.
+which keeps `meta`; `recent()` projects rows to role and content only. When the
+chain's newest file holds fewer than 20 rows, that read falls back to the chained
+page read, which can read every file in the chain, so both callers (dashboard
+`_run_chat`, Slack `handle_message`) build the preamble through `asyncio.to_thread`.
 
 **`context._build_stop_event_notes`** separately injects up to
 `_STOP_EVENT_CAP` (3) short system notes for recent **resolved** `stop_event`

@@ -5,6 +5,7 @@ from __future__ import annotations
 import asyncio
 import contextlib
 import re
+import threading
 import time
 from types import SimpleNamespace
 from unittest.mock import MagicMock
@@ -32,6 +33,7 @@ from kiro_crew.slack.handler import (
     set_allowed_users,
     set_owner_id,
 )
+from kiro_crew.testing.wait import async_wait_until, await_until, default_timeout
 
 #: These tests exercise the SLACK side (thread renaming), not the record
 #: pin, so they pass the value production supplies when there is nothing to
@@ -4012,6 +4014,90 @@ class TestTransientCompactionRetry:
         assert call["from_trusted_bot"] is True
         assert call["had_voice_input"] is True
         assert call["_compaction_replay"].attempt == 1
+
+
+class _HeldTailRead:
+    """A chained-tail read that stays open until the loop runs again.
+
+    Off the loop thread the read waits for :meth:`beat`, a coroutine on the loop,
+    so the beat finds the read open only if the loop kept running during it. On the
+    loop thread nothing else can run until the read returns, so waiting would only
+    spend the bound: it returns at once and the beat finds it closed.
+    """
+
+    def __init__(self, rows: list[dict]) -> None:
+        self._rows = rows
+        self._loop_thread = threading.get_ident()
+        self._entered = threading.Event()
+        self._release = threading.Event()
+        self._open = False
+        self.loop_ran_while_open: bool | None = None
+
+    def __call__(self, session_key: str, limit: int) -> list[dict]:
+        self._open = True
+        self._entered.set()
+        try:
+            if threading.get_ident() != self._loop_thread:
+                self._release.wait(default_timeout())
+            return list(self._rows[-limit:])
+        finally:
+            self._open = False
+
+    async def beat(self) -> None:
+        await async_wait_until(
+            self._entered.is_set, describe=lambda: "the stop restore has not read the transcript"
+        )
+        self.loop_ran_while_open = self._open
+        self.release()
+
+    def release(self) -> None:
+        self._release.set()
+
+
+class TestCancelledTurnRestoreReadsOffTheLoop:
+    """The stopped turn's restore reads the transcript while the loop keeps running."""
+
+    @pytest.mark.asyncio
+    async def test_the_loop_runs_while_the_restore_reads_the_transcript(self):
+        held = _HeldTailRead(
+            [
+                {"role": "user", "content": "please refactor the parser"},
+                {"role": "assistant", "content": "Reading the parser module"},
+            ]
+        )
+        log = MagicMock()
+        log.get_metadata.return_value = {}
+        log.get_metadata_status.return_value = ({}, True)
+        log.read_messages_chained_tail.side_effect = held
+        provider = _SequencedProvider([_answered()], transient=None)
+        sessions = FakeSessionManager(provider)
+        sessions._sessions = {
+            "thread1": SimpleNamespace(prev_turn_cancelled=True, provider=provider)
+        }
+
+        beat = asyncio.ensure_future(held.beat())
+        try:
+            await handle_message(
+                MockSlackClient(),
+                sessions,
+                "C1",
+                "hello",
+                "thread1",
+                "msg1",
+                "U1",
+                context_builder=ContextBuilder(conversation_log=log),
+                conversation_log=log,
+            )
+            await await_until(beat, what="the loop-side beat")
+        finally:
+            beat.cancel()
+            held.release()
+
+        assert held.loop_ran_while_open is True, (
+            "no coroutine ran while the stop restore read the transcript: "
+            "the read ran on the event loop"
+        )
+        assert "Cancelled user request:\nplease refactor the parser\n" in provider.turn_prompts[0]
 
 
 class TestBuildTimingFooter:

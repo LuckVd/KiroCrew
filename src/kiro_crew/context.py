@@ -1466,7 +1466,10 @@ def build_cancelled_turn_preamble(
     try:
         # Not ``recent()``: it projects every row to role and content, and the
         # builder needs ``meta`` to tell a mid-turn steer from the turn's opener.
-        # The tail read keeps it and, like ``recent()``, costs by the limit.
+        # The tail read keeps it. When the chain's newest file holds fewer rows
+        # than the limit, it answers from the chained page read, which can read
+        # every file in the chain to index it, so both callers run this builder
+        # off the event loop.
         recent = conversation_log.read_messages_chained_tail(session_key, 20)
     except Exception:
         return ""
