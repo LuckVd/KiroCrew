@@ -700,6 +700,79 @@ describe('AssistantMessage', () => {
     })
   })
 
+  describe('explicit fork direction entries', () => {
+    const menuProps = { content: 'x'.repeat(80), isStreaming: false, slotRunning: false }
+    const stable = { forkIndex: 7, forkMessageId: 'row-42' }
+
+    it.each([['fork-with-history', 'head'], ['fork-tail-only', 'tail']] as const)('%s forks in the direction it names', (testId, direction) => {
+      const onFork = vi.fn()
+      render(<AssistantMessage {...menuProps} {...stable} onFork={onFork} forkDirectionChoice />)
+      openOverflow()
+      fireEvent.click(screen.getByTestId(testId))
+      expect(onFork).toHaveBeenCalledTimes(1)
+      expect(onFork).toHaveBeenCalledWith(7, 'row-42', direction)
+    })
+
+    it('leaves the plain entry on its two-argument call when the choice is offered', () => {
+      const onFork = vi.fn()
+      render(<AssistantMessage {...menuProps} {...stable} onFork={onFork} forkDirectionChoice />)
+      openOverflow()
+      fireEvent.click(screen.getByTestId('fork-from-here'))
+      expect(onFork).toHaveBeenCalledTimes(1)
+      expect(onFork).toHaveBeenCalledWith(7, 'row-42')
+    })
+
+    it('labels the entries by what they keep, after the plain entry and in that order', () => {
+      render(<AssistantMessage {...menuProps} {...stable} onFork={vi.fn()} forkDirectionChoice />)
+      openOverflow()
+      expect(screen.getByTestId('fork-with-history')).toHaveTextContent('Fork with history')
+      expect(screen.getByTestId('fork-tail-only')).toHaveTextContent('Fork tail only')
+      expect(screen.getByTestId('fork-from-here')).toHaveTextContent('Fork conversation from here')
+      const order = screen.getAllByRole('menuitem').map(i => i.getAttribute('data-testid')).filter(id => id?.startsWith('fork-'))
+      expect(order).toEqual(['fork-from-here', 'fork-with-history', 'fork-tail-only'])
+    })
+
+    it('leaves the menu as it was while the host does not offer the choice', () => {
+      render(<AssistantMessage {...menuProps} {...stable} onFork={vi.fn()} />)
+      openOverflow()
+      expect(screen.getByTestId('fork-from-here')).toBeInTheDocument()
+      expect(screen.queryByTestId('fork-with-history')).toBeNull()
+      expect(screen.queryByTestId('fork-tail-only')).toBeNull()
+    })
+
+    it('offers no direction before the fork point can be resolved, where the plain entry only pages earlier history', () => {
+      render(<AssistantMessage {...menuProps} onFork={vi.fn()} onLoadEarlier={vi.fn()} forkDirectionChoice />)
+      openOverflow()
+      expect(screen.getByTestId('fork-from-here')).toHaveAttribute('aria-disabled', 'true')
+      expect(screen.queryByTestId('fork-with-history')).toBeNull()
+      expect(screen.queryByTestId('fork-tail-only')).toBeNull()
+    })
+
+    it('adds no menu for a row that keeps its fork as the row button', () => {
+      render(<AssistantMessage {...menuProps} forkIndex={4} onFork={vi.fn()} forkDirectionChoice />)
+      expect(screen.queryByTitle('More actions')).toBeNull()
+      expect(screen.queryByTestId('fork-with-history')).toBeNull()
+    })
+
+    it('holds the entries while a fork is in flight, so a second click cannot start another', async () => {
+      let resolveFork!: () => void
+      const onFork = vi.fn(() => new Promise<void>(res => { resolveFork = res }))
+      render(<AssistantMessage {...menuProps} {...stable} onFork={onFork} forkDirectionChoice />)
+      openOverflow()
+      fireEvent.click(screen.getByTestId('fork-tail-only'))
+      expect(onFork).toHaveBeenCalledTimes(1)
+      openOverflow()
+      expect(screen.getByTestId('fork-with-history')).toHaveAttribute('aria-disabled', 'true')
+      expect(screen.getByTestId('fork-tail-only')).toHaveAttribute('aria-disabled', 'true')
+      fireEvent.click(screen.getByTestId('fork-with-history'))
+      expect(onFork).toHaveBeenCalledTimes(1)
+      // The held item keeps the menu open, like the plain entry, so it is the same menu to read again.
+      await act(async () => { resolveFork(); await Promise.resolve() })
+      expect(screen.getByTestId('fork-with-history')).not.toHaveAttribute('aria-disabled')
+      expect(screen.getByTestId('fork-tail-only')).not.toHaveAttribute('aria-disabled')
+    })
+  })
+
 })
 
 describe('action footer on touch devices', () => {

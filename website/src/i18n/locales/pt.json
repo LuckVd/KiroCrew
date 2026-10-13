@@ -11244,6 +11244,8 @@
         "needs_earlier_history_count_many": "Selecione para carregar o histórico anterior: restam {{count}} mensagens anteriores",
         "needs_earlier_history_count_other": "Selecione para carregar o histórico anterior: restam {{count}} mensagens anteriores",
         "share_message": "Compartilhar como imagem",
+        "fork_with_history": "Bifurcar com o histórico",
+        "fork_tail_only": "Bifurcar apenas o final",
         "copy_failed": "Falha ao copiar",
         "quote_message": "Citar mensagem"
       },

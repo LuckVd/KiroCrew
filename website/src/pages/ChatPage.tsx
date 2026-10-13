@@ -1704,7 +1704,11 @@ export default function ChatPage({ mode, embedded, embedMode, popout, noUrlSync 
   )
 
   const { data: forkCfg } = useQuery<{ tail_fork_enabled?: boolean }>({ queryKey: ['dashboardConfig'], queryFn: fetchDashboardConfig, staleTime: 30_000 })
-  const handleFork = useCallback(async (visibleIndex: number, messageId?: string) => {
+  // The server forks the tail only while Tail-only Fork is on and otherwise answers a tail
+  // request with a history fork, so the explicit-direction entries are offered exactly then.
+  // A primitive, so it can sit in the transcript renderer's dependency list.
+  const forkDirectionChoice = forkCfg?.tail_fork_enabled === true
+  const handleFork = useCallback(async (visibleIndex: number, messageId?: string, explicitDirection?: 'head' | 'tail') => {
     if (!activeSlot) return
     try {
       // Fork WITHOUT a prompt: an unsent composer draft must never be
@@ -1719,7 +1723,8 @@ export default function ChatPage({ mode, embedded, embedMode, popout, noUrlSync 
       // — which would downgrade an intended tail-fork to a head-fork whenever
       // the query has errored or settled with no data, not just while loading.
       const resolvedCfg = forkCfg ?? await api.dashboardConfig()
-      const direction = resolvedCfg?.tail_fork_enabled ? 'tail' : 'head'
+      // A direction named by a menu entry wins; a plain fork follows the setting.
+      const direction = explicitDirection ?? (resolvedCfg?.tail_fork_enabled ? 'tail' : 'head')
       const result = await dispatch(forkSlot({ slot: activeSlot, atIndex: visibleIndex, messageId, direction })).unwrap()
       if (result.ok) {
         await dispatch(switchSlot(result.key))
@@ -4524,7 +4529,7 @@ export default function ChatPage({ mode, embedded, embedMode, popout, noUrlSync 
                 return !slotRunning
               })()} onSpeak={handleSpeak} onRegenerate={i === lastTextIdxRef.current && !slotRunning && !regenerating && activeSlot && !activeSlotRemoteBound ? handleRegenerate : undefined} variants={m.variants} variantIdx={m.variant_idx} onSwitchVariant={i === lastTextIdxRef.current && m.variants && m.variants.length > 1 && activeSlot ? (idx: number) => { api.switchVariant(activeSlot, idx).catch((e: unknown) => {
                 showRefusedPress('switch_variant', e)
-              }) } : undefined} onFork={embedded && !popout ? undefined : handleFork} forkIndex={forkIndex} forkMessageId={canResolveOnServer ? messageId : undefined} onLoadEarlier={cursorIsForActiveSlot ? handleLoadEarlier : undefined} loadingOlder={loadingOlder} earlierRemaining={slotOldestIndex} onApplyPlan={handleApplyPlan} />
+              }) } : undefined} onFork={embedded && !popout ? undefined : handleFork} forkDirectionChoice={forkDirectionChoice} forkIndex={forkIndex} forkMessageId={canResolveOnServer ? messageId : undefined} onLoadEarlier={cursorIsForActiveSlot ? handleLoadEarlier : undefined} loadingOlder={loadingOlder} earlierRemaining={slotOldestIndex} onApplyPlan={handleApplyPlan} />
             </div>
           )}
         </div>
@@ -4611,7 +4616,7 @@ export default function ChatPage({ mode, embedded, embedMode, popout, noUrlSync 
       bubble,
     ])
     return { renderers, fallback: bubble }
-  }, [slotRunning, handleFileOpen, handleArtifactOpen, selectSessionTab, sessionTitles, connected, handleFork, handleQuote, handleAsk, quoteWholeMessage, handleJumpToQuote, chatConfig, activeSlot, regenerating, activeSlotRemoteBound, handleRegenerate, handleEditResend, editLast, handleEditConsumed, slotHasMore, loadingOlder, cursorIsForActiveSlot, slotOldestIndex, handleLoadEarlier, renderUserContentCb, highlightTs, activeSlotTitle, mode, embedded, popout, handleOpenDiff, planTaskId, artifactPaths, automationId, toolDisclosure, setToolDisclosureFor, linkPreviewsOn, socialShareOn, voiceRecoverySlot, handleSubagentPanelOpen, isPinned, handleTogglePinForMessage, showRefusedPress, transcriptHot, revealAppInPanel, continuable, interrupted, continuing, handleContinue, openModelPickerFromError, openDefaultModelSetting, openKiroSignIn, openMemberCapabilities, openTurnLimitSetting, handleFreshSession, freshSession, handleFolderOpen, handleSpeak, handleApplyPlan, mcpAppPanel, redactionCoachTs, setAutomationOpen])
+  }, [slotRunning, handleFileOpen, handleArtifactOpen, selectSessionTab, sessionTitles, connected, handleFork, forkDirectionChoice, handleQuote, handleAsk, quoteWholeMessage, handleJumpToQuote, chatConfig, activeSlot, regenerating, activeSlotRemoteBound, handleRegenerate, handleEditResend, editLast, handleEditConsumed, slotHasMore, loadingOlder, cursorIsForActiveSlot, slotOldestIndex, handleLoadEarlier, renderUserContentCb, highlightTs, activeSlotTitle, mode, embedded, popout, handleOpenDiff, planTaskId, artifactPaths, automationId, toolDisclosure, setToolDisclosureFor, linkPreviewsOn, socialShareOn, voiceRecoverySlot, handleSubagentPanelOpen, isPinned, handleTogglePinForMessage, showRefusedPress, transcriptHot, revealAppInPanel, continuable, interrupted, continuing, handleContinue, openModelPickerFromError, openDefaultModelSetting, openKiroSignIn, openMemberCapabilities, openTurnLimitSetting, handleFreshSession, freshSession, handleFolderOpen, handleSpeak, handleApplyPlan, mcpAppPanel, redactionCoachTs, setAutomationOpen])
 
   const renderMessage = useCallback((i: number, m: ChatMessage) => {
     // Key identity rules (clientTs preference + streaming->assistant role

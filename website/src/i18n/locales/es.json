@@ -11244,6 +11244,8 @@
         "needs_earlier_history_count_many": "Selecciona para cargar el historial anterior: quedan {{count}} mensajes anteriores",
         "needs_earlier_history_count_other": "Selecciona para cargar el historial anterior: quedan {{count}} mensajes anteriores",
         "share_message": "Compartir como imagen",
+        "fork_with_history": "Bifurcar con el historial",
+        "fork_tail_only": "Bifurcar solo la cola",
         "copy_failed": "Error al copiar",
         "quote_message": "Citar mensaje"
       },
