@@ -1464,7 +1464,10 @@ def build_cancelled_turn_preamble(
     is observed on the session.
     """
     try:
-        recent = conversation_log.recent(session_key, max_messages=20)
+        # Not ``recent()``: it projects every row to role and content, and the
+        # builder needs ``meta`` to tell a mid-turn steer from the turn's opener.
+        # The tail read keeps it and, like ``recent()``, costs by the limit.
+        recent = conversation_log.read_messages_chained_tail(session_key, 20)
     except Exception:
         return ""
     return _replay.cancelled_turn_preamble(recent, user_cap=user_cap, assist_cap=assist_cap)

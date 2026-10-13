@@ -3930,10 +3930,12 @@ class TestTransientCompactionRetry:
         log = MagicMock()
         log.get_metadata.return_value = {}
         log.get_metadata_status.return_value = ({}, True)
-        log.recent.return_value = [
+        rows = [
             {"role": "user", "content": "earlier question"},
             {"role": "assistant", "content": "earlier partial answer"},
         ]
+        log.recent.return_value = rows
+        log.read_messages_chained_tail.return_value = rows
         ctx = ContextBuilder(conversation_log=log)
         slack = MockSlackClient()
         provider = _SequencedProvider([_abandoned(), _answered()], transient=True)

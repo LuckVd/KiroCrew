@@ -82,6 +82,19 @@ def _compress_assistant_message(text: str) -> str:
 # walked past.
 _TURN_OPENER_ROLES = frozenset({"user", "nudge", "subagent"})
 
+# Label on a mid-turn steer carried inside the restored partial output.
+_STEER_LABEL = "[Steered mid-turn]"
+
+
+def _is_steer_row(row: dict) -> bool:
+    """Whether *row* is a mid-turn steer: a ``user`` row marked ``meta.steer``.
+
+    A steer is injected INTO a turn that is already running, so it never opened
+    that turn even though its role is ``user``.
+    """
+    meta = row.get("meta")
+    return row.get("role") == "user" and isinstance(meta, dict) and meta.get("steer") is True
+
 
 def _interrupted_opener_kind(row: dict) -> str:
     """A short name for the automated delivery that opened an interrupted turn."""
@@ -435,7 +448,8 @@ def cancelled_turn_preamble(recent: list[dict], *, user_cap: int, assist_cap: in
     """The ``[PREVIOUS TURN WAS CANCELLED …]`` restore for *recent* rows, or ``""``.
 
     Scans backwards for a ``stop_event`` marker, then takes the user message
-    immediately before it plus any assistant text in between.
+    that opened the turn before it plus the assistant text and any mid-turn
+    steers in between.
     """
     if not recent:
         return ""
@@ -469,17 +483,33 @@ def cancelled_turn_preamble(recent: list[dict], *, user_cap: int, assist_cap: in
         if recent[i].get("role") == "user":
             user_idx = i
             break
+    # A steer is a user row, but it was injected into the turn rather than opening
+    # it. When the newest user row is one, the request the turn answered is the
+    # nearest row before it that could have opened a turn, provided that row is a
+    # plain user row. A nudge, a sub-agent completion or an inject row (whether it
+    # opens a turn depends on its kind) may be the opener, and a window that holds
+    # no opener has none to name: both keep the steer as the request.
+    if user_idx >= 0 and _is_steer_row(recent[user_idx]):
+        for i in range(user_idx - 1, -1, -1):
+            role = recent[i].get("role")
+            if role == "inject" or (role in _TURN_OPENER_ROLES and not _is_steer_row(recent[i])):
+                if role == "user":
+                    user_idx = i
+                break
     if user_idx < 0:
         return ""
-    # Collect any assistant text between user_idx and the boundary.
+    # Collect the assistant text between user_idx and the boundary, with each
+    # steer in the order it was sent.
     boundary = stop_idx if stop_idx >= 0 else len(recent)
     user_text = (recent[user_idx].get("content") or "").strip()
     assistant_parts: list[str] = []
     for i in range(user_idx + 1, boundary):
-        if recent[i].get("role") == "assistant":
-            t = (recent[i].get("content") or "").strip()
-            if t:
-                assistant_parts.append(t)
+        role = recent[i].get("role")
+        if role != "assistant" and not _is_steer_row(recent[i]):
+            continue
+        t = (recent[i].get("content") or "").strip()
+        if t:
+            assistant_parts.append(t if role == "assistant" else f"{_STEER_LABEL} {t}")
     assistant_text = "\n".join(assistant_parts)
     if len(user_text) > user_cap:
         user_text = user_text[:user_cap] + "… [truncated]"
