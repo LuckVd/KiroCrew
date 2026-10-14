@@ -323,7 +323,14 @@ def _url_payload_command(n: int) -> str:
 #: start with a literal ``re`` searches at memchr speed, which takes a second
 #: Authorization half and the comments that say why each spelling accepts
 #: exactly what the old one did. No credential branch, gate verdict or pass moved.
-_PACKAGE_LINE_BUDGET = 29_205
+#:
+#: Raised again, from 29,205, for ``exfil.restore_allowed_links``: an allowed host
+#: with several different addresses in one reply pairs its placeholders with its
+#: records by order instead of staying blocked, and every address put back must
+#: read as one whole URL where it lands. Display-time only; no redaction rule,
+#: pattern or threshold moved. Then by 2 for the ``ordered`` gate (older rows keep the
+#: one-address rule) and the check that an address never lands inside another URL.
+_PACKAGE_LINE_BUDGET = 29_220
 
 #: Ceiling on any ONE file in the package. This is what the bound is really for --
 #: a package total says nothing about a single file growing back into a second
