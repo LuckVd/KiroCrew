@@ -136,6 +136,7 @@ import CrewDashboardTab from './CrewDashboardTab'
 import { DASHBOARD_PREVIEW_PARAM, DASHBOARD_PREVIEW_VALUE, isDashboardPreview, withoutDashboardPreview } from './dashboardPreview'
 import { dashboardPreviewMemberFromRef, dashboardPreviewSlugFromRef } from '../../utils/dashboardPreview'
 import { mergePaneDraft } from '../../utils/chatPaneDrafts'
+import { useMemberDocumentComments } from '../../hooks/useMemberDocumentComments'
 import ErrorBoundary from '../../components/ErrorBoundary'
 import ErrorNotice from '../../components/ErrorNotice'
 import { useConfirm } from '../../components/ConfirmDialog'
@@ -2823,10 +2824,10 @@ export default function MembersPage() {
   const besideRef = useRef(beside)
   besideRef.current = beside
   const [actionError, setActionError] = useState('')
-  // A failed document read is reported above the thread. In overlay mode the
-  // open panel covers exactly that spot — the click that failed happened inside
-  // it — so the overlay closes as the notice appears; otherwise the failure is
-  // silent to the person who caused it.
+  // A failed document read or comment send is reported above the thread. In
+  // overlay mode the open panel covers exactly that spot — the click that
+  // failed happened inside it — so the overlay closes as the notice appears;
+  // otherwise the failure is silent to the person who caused it.
   const showActionError = useCallback((message: string) => {
     setActionError(message)
     if (!besideRef.current) setOverlayOpen(false)
@@ -2871,6 +2872,13 @@ export default function MembersPage() {
   const openArtifactGuarded = useCallback((slug: string) => {
     void openArtifact(slug)
   }, [openArtifact])
+  // Inline comments on a document in the side panel: the hook owns the send and
+  // the "N comments sent" line; the page supplies the confirmed DM slot, the
+  // panel placement and the failure notice.
+  const clearActionError = useCallback(() => setActionError(''), [])
+  const { info: actionInfo, submitComments } = useMemberDocumentComments({
+    connected, slotRef: activeSlotRef, besideRef, crewmateLabel, showActionError, clearActionError,
+  })
   // Opening one of the crewmate's sessions leaves `/members` for `/chat` outright, so it
   // destroys the Schedules form as surely as the identity pill does. It is a raw
   // `navigate`, which the leave channel never sees -- only callers that ask reach it --
@@ -4914,6 +4922,16 @@ export default function MembersPage() {
                 testId="member-panel-action-error"
               />
             )}
+            {actionInfo && (
+              <p
+                className="text-[13px] text-muted px-4 py-1.5"
+                data-testid="member-panel-action-info"
+                role="status"
+                aria-live="polite"
+              >
+                {actionInfo}
+              </p>
+            )}
             {/* The editor's roster read (crewAgentsQuery, enabled only once the
                 identity pill sets editingCrew) failed: without this the pill would
                 be a silent dead click — editingAgent stays undefined, the hook's
@@ -5494,6 +5512,11 @@ export default function MembersPage() {
             onOpenWorkingTreeDiff: openWorkingTreeDiff,
             onArtifactOpen: openArtifactInPanel,
             onFileSave: saveFile,
+            // Document tabs take inline comments here as on the chat page; their
+            // Submit lands in this crewmate's chat (`submitComments`) and is
+            // disabled while the gateway is offline.
+            onSubmitComments: submitComments,
+            connected,
             leadingTabs,
             slotTitle: crewDisplayName(activeView ?? active),
             canDockBottom: false,
