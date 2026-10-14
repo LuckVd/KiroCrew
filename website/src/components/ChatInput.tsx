@@ -60,7 +60,6 @@ import { useDictationControls, useHoldToTalk } from './chat-input/voice'
 import { HoldToTalkBar, MicButton, VoiceCaptureStatus } from './chat-input/VoiceControls'
 import { AgentChip, ContextUsageControl, ModelChip, SessionControlChips, useContextPopover, useShelfMeasure } from './chat-input/ContextShelf'
 import { useAutoCompactThreshold } from './chat-input/autoCompact'
-import { useCacheHitRatio } from './chat-input/cacheHitRatio'
 import { AttachMenu, usePlusMenu } from './chat-input/attach'
 import { BusySendControls, CompactingIndicator, useComposerSend } from './chat-input/busySend'
 import { CollapsedComposerBar, collapseMenuRowElement, useComposerCollapse } from './chat-input/collapse'
@@ -523,7 +522,6 @@ function ChatInput({
     : 'components.chatInput.continue_thread')
   // A peer session's threshold is the peer's; this machine has none to show.
   const autoCompactThreshold = useAutoCompactThreshold({ activeSlot: sessionOnPeer ? null : activeSlot, ctxPopoverOpen, queryClient, dispatch })
-  const cacheHitRatio = useCacheHitRatio({ activeSlot: sessionOnPeer ? null : activeSlot, ctxPopoverOpen })
   const { composerCollapsed, collapsedBarRef, collapseComposer, expandComposer, collapsedDraftLine } = useComposerCollapse({ collapsible, composerControl, value })
   // The message box's guide scope (`composer.box`): a step through the
   // collapsed bar completes the moment the box reads open again.
@@ -1630,7 +1628,7 @@ function ChatInput({
           </div>
           <div className="flex items-center shrink-0">
           {contextPct != null && (
-            <ContextUsageControl contextPct={contextPct} contextUsedTokens={contextUsedTokens} contextWindowTokens={contextWindowTokens} showContextPct={showContextPct} showContextTokens={showContextTokens} shelfCompact={shelfCompact} modelName={modelName} cacheHitRatio={cacheHitRatio} ctxPopoverOpen={ctxPopoverOpen} setCtxPopoverOpen={setCtxPopoverOpen} ctxWrapRef={ctxWrapRef} autoCompactThreshold={autoCompactThreshold} />
+            <ContextUsageControl contextPct={contextPct} contextUsedTokens={contextUsedTokens} contextWindowTokens={contextWindowTokens} showContextPct={showContextPct} showContextTokens={showContextTokens} shelfCompact={shelfCompact} modelName={modelName} cacheSlot={sessionOnPeer ? null : activeSlot} ctxPopoverOpen={ctxPopoverOpen} setCtxPopoverOpen={setCtxPopoverOpen} ctxWrapRef={ctxWrapRef} autoCompactThreshold={autoCompactThreshold} />
           )}
           {onModelClick && modelName && (
             <ModelChip modelName={modelName} modelIsJevRouted={modelIsJevRouted} modelIsInheritedDefault={modelIsInheritedDefault} modelIsAutoChosen={modelIsAutoChosen} reasoningEffort={reasoningEffort} effortIsDefault={effortIsDefault} hasEffort={hasEffort} isRunning={isRunning} shelfTiny={shelfTiny} composerControl={composerControl} modelChipPressedFromComposerRef={modelChipPressedFromComposerRef} onModelClick={onModelClick} />

@@ -6,7 +6,7 @@ import ChatInput from '../components/ChatInput'
 import { cacheHitRatio } from '../components/chat-input/cacheHitRatio'
 import { ComposerVoiceSliceOverride } from '../chat-core/composer/Composer'
 import { api } from '../api/client'
-import { crewLogProjectionsKey } from '../hooks/websocket/sessionProjection'
+import { crewLogProjectionsKey } from '../hooks/useWebSocket'
 import { SlotProvider } from '../providers/SlotContext'
 import type { PasteBlock } from '../utils/pasteTokens'
 
@@ -914,21 +914,25 @@ describe('ChatInput context-usage popover: prompt-cache hit ratio', () => {
     return view
   }
 
-  it('shows hits as a share of read, creation and uncached input tokens', () => {
+  it('shows the rate as a share of read, creation and uncached input tokens, with its basis', () => {
     openPopover(usageRead(REPORTING))
     const row = screen.getByTestId('context-cache-hits')
-    expect(within(row).getByText('Cache hits')).toBeInTheDocument()
+    expect(within(row).getByText('Cache hit rate')).toBeInTheDocument()
     // 750 / (750 + 150 + 100)
     expect(within(row).getByText('75%')).toBeInTheDocument()
+    // The unit sits beside the number, which is not a share of the context window.
+    expect(within(row).getByText('Share of input tokens')).toBeInTheDocument()
   })
 
   it.each([
     ['a backend that sends no token counts', { input: 0, output: 0, cache_read: 0, cache_write: 0 }],
     ['input tokens but no cache count, which would read as a 0% miss', { input: 400, output: 90, cache_read: 0, cache_write: 0 }],
     ['a fold with no token block', undefined],
-  ])('shows no row for %s, and shows it once a later frame reports cache tokens', async (_name, tokens) => {
+  ])('shows no row and no error notice for %s, and shows the row once a later frame reports cache tokens', async (_name, tokens) => {
     const { queryClient } = openPopover(usageRead(tokens))
     expect(screen.queryByTestId('context-cache-hits')).toBeNull()
+    // A successful read with nothing to report is not a failure.
+    expect(screen.queryByTestId('cache-hit-rate-load-error')).toBeNull()
     // The control: the same popover shows the row when the data reports, so the
     // absence above is the data's doing and not a row that never renders.
     act(() => { queryClient.setQueryData(KEY, usageRead(REPORTING)) })
@@ -954,23 +958,38 @@ describe('ChatInput context-usage popover: prompt-cache hit ratio', () => {
     expect(read).not.toHaveBeenCalled()
   })
 
-  it('shows no row and no error when the usage read fails, and keeps the other rows', async () => {
+  it('shows an error notice and no row when the usage read fails, and keeps the other rows', async () => {
     vi.spyOn(api, 'chatSlotAutocompact').mockResolvedValue({ pct: null, global_pct: 70, min: 5, max: 90 })
     const read = vi.spyOn(api, 'sessionCrewLogProjections').mockRejectedValue(new Error('offline'))
     read.mockClear()
-    const { queryClient } = renderWithProviders(
+    renderWithProviders(
       <SlotProvider slotId="test-slot">
         <ChatInput {...base} contextPct={42} contextWindowTokens={200_000} contextUsedTokens={84_000} />
       </SlotProvider>,
     )
     fireEvent.click(screen.getByLabelText('Context usage'))
-    // The positive signal: the popover asked for the fold and the read failed, so the
-    // absence below is a handled failure and not a read that never happened.
-    await waitFor(() => expect(queryClient.getQueryState(KEY)?.status).toBe('error'), { timeout: 5000 })
+    // The notice is the positive signal: the popover asked for the fold and the read
+    // failed, so the row's absence below is a reported failure and not a read that
+    // never happened.
+    const notice = await screen.findByTestId('cache-hit-rate-load-error', {}, { timeout: 5000 })
+    expect(notice).toHaveTextContent("Couldn't load the cache hit rate")
     expect(read).toHaveBeenCalledWith('test-slot')
+    // No hand-off: the composer's draft is unsaved, and a hand-off navigates away from it.
+    expect(within(notice).queryByRole('button')).toBeNull()
     expect(screen.queryByTestId('context-cache-hits')).toBeNull()
     expect(screen.getByText('Context window')).toBeInTheDocument()
     expect(screen.getByText('84K')).toBeInTheDocument()
+  })
+
+  it('keeps the last rate and shows no error notice when a later read fails', async () => {
+    const { queryClient } = openPopover(usageRead(REPORTING))
+    expect(within(screen.getByTestId('context-cache-hits')).getByText('75%')).toBeInTheDocument()
+    vi.spyOn(api, 'sessionCrewLogProjections').mockRejectedValue(new Error('offline'))
+    await act(async () => { await queryClient.invalidateQueries({ queryKey: KEY }) })
+    // The positive signal: the query holds the error beside the rate it kept.
+    await waitFor(() => expect(queryClient.getQueryState(KEY)?.status).toBe('error'), { timeout: 5000 })
+    expect(within(screen.getByTestId('context-cache-hits')).getByText('75%')).toBeInTheDocument()
+    expect(screen.queryByTestId('cache-hit-rate-load-error')).toBeNull()
   })
 })
 

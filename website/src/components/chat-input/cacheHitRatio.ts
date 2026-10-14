@@ -1,6 +1,6 @@
 import { useQuery } from '@tanstack/react-query'
 import { api } from '../../api/client'
-import { crewLogProjectionsKey } from '../../hooks/websocket/sessionProjection'
+import { crewLogProjectionsKey } from '../../hooks/useWebSocket'
 
 const rec = (v: unknown): Record<string, unknown> =>
   v !== null && typeof v === 'object' && !Array.isArray(v) ? (v as Record<string, unknown>) : {}
@@ -25,19 +25,19 @@ export function cacheHitRatio(read: unknown): number | null {
   return Number.isFinite(total) ? hits / total : null
 }
 
-/** The ratio for the context popover. It reads the entry the Crew Log tab fills,
- *  lazily on open like the auto-compact threshold beside it, so a pushed
- *  `session_projection` frame keeps it current. A failed read shows nothing, the
- *  same as a backend with no counts; the popover's other rows are unaffected. */
-export function useCacheHitRatio({ activeSlot, ctxPopoverOpen }: {
-  activeSlot: string | null
-  ctxPopoverOpen: boolean
-}): number | null {
-  const { data } = useQuery({
-    queryKey: crewLogProjectionsKey(activeSlot ?? ''),
-    queryFn: () => api.sessionCrewLogProjections(activeSlot as string),
-    enabled: ctxPopoverOpen && !!activeSlot,
+/** The ratio for the context popover, read from the entry the Crew Log tab fills,
+ *  so a pushed `session_projection` frame keeps it current. The caller mounts it
+ *  while the popover is open, which is when the read starts.
+ *
+ *  `failed` is a read that errored with nothing earlier to show: a null ratio from
+ *  a backend that reports no cache counts is a successful read and not a failure.
+ *  A later read that fails keeps the ratio the last good one produced. */
+export function useCacheHitRatio(slot: string | null): { ratio: number | null; failed: boolean } {
+  const { data, isError } = useQuery({
+    queryKey: crewLogProjectionsKey(slot ?? ''),
+    queryFn: () => api.sessionCrewLogProjections(slot as string),
+    enabled: !!slot,
     staleTime: 30_000,
   })
-  return cacheHitRatio(data)
+  return { ratio: cacheHitRatio(data), failed: isError && data === undefined }
 }
