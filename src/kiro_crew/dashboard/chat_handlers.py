@@ -4274,9 +4274,25 @@ async def continue_slot_turn(
         if slot._stopping or slot._stop_state != "idle":
             raise SlotContinueRefusal("a stop is in progress", "slot_stopping")
         if slot.queue_depth:
-            # The runner is about to pick the thread back up on its own; adding a
-            # continuation would double-fire.
-            raise SlotContinueRefusal("queued messages pending", "slot_queue_pending")
+            # Three cases:
+            #
+            # 1. Not interrupted (clean finish + live queue): the runner is
+            #    about to drain the queue on its own; adding a recovery here
+            #    would double-fire the turn.
+            #
+            # 2. Interrupted + no pending recovery: the slot was cut off by a
+            #    restart and its queue is from the previous process -- nothing
+            #    drains it on boot. Resume is allowed: the recovery is inserted
+            #    at position 0 so the interrupted turn runs first, then the
+            #    restored items drain in order.
+            #
+            # 3. Interrupted + recovery already at head: the first Resume press
+            #    already enqueued a recovery. A second press before that one
+            #    starts would insert a duplicate; refuse it as a no-op.
+            if not _is_interrupted(slot) or (
+                slot._queue and slot._queue[0].get("kind") == SYNTHETIC_RECOVERY_KIND
+            ):
+                raise SlotContinueRefusal("queued messages pending", "slot_queue_pending")
         if any(not f.done() for f in slot._approval_futures.values()):
             raise SlotContinueRefusal("approval pending", "slot_approval_pending")
         # Background sub-agents are still running (or waiting to start) for this
