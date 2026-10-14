@@ -2491,6 +2491,9 @@
           "repository_settings": "リポジトリ設定",
           "gitlab_groups": "GitLab グループ"
         },
+        "timelineComposer": {
+          "clear": "クリア"
+        },
         "depsSection": {
           "title": "依存関係",
           "blocked_by": "ブロック元",

@@ -10,6 +10,13 @@
 //  * **A late result is dropped.** The panes are reused when the reader moves to
 //    another item, and a post can settle after that. `epoch` ties a result to the item
 //    it was sent for, so it can neither clear nor blame the next item's draft.
+//  * **Typing during a post is kept.** The box stays editable while a post is in
+//    flight, and a success empties it only when the draft is still the text that was
+//    sent. Words typed since belong to the next comment.
+//  * **No key discards a draft.** Escape leaves the box and keeps the text, and it
+//    still reaches `window`, where the pull request list clears a bulk selection.
+//    Clear is the one action that empties the box. A key the input method owns, such
+//    as the Escape that cancels a candidate, is left to it.
 //  * **One column.** The textarea is full width and the button row wraps, so the box
 //    needs no narrow-width branch.
 import { useEffect, useRef, useState } from 'react'
@@ -39,6 +46,11 @@ export default function TimelineComposer({ itemKey, post }: {
     setBusy(false)
   }, [itemKey])
 
+  const clear = () => {
+    setText('')
+    setError(null)
+  }
+
   const submit = async () => {
     const body = text.trim()
     if (!body || busy) return
@@ -47,7 +59,10 @@ export default function TimelineComposer({ itemKey, post }: {
     setError(null)
     try {
       await post(body)
-      if (sentFor === epoch.current) setText('')
+      // Read the draft as it stands when the post ends, not as it was at the click: the
+      // box stays editable while the post is in flight, and words typed since are the
+      // next comment. Only a draft that still reads as the sent one is emptied.
+      if (sentFor === epoch.current) setText((now) => (now.trim() === body ? '' : now))
     } catch (e) {
       if (sentFor === epoch.current) setError(e as Error)
     } finally {
@@ -62,14 +77,13 @@ export default function TimelineComposer({ itemKey, post }: {
         onChange={(e) => setText(e.target.value)}
         {...ime.bindComposition<HTMLTextAreaElement>()}
         onKeyDown={(e) => {
-          // Escape discards a draft and stops there: the pull request list listens for
-          // Escape on `window` to clear a bulk selection, and discarding a comment must
-          // not disarm it. With nothing to discard the key is left to bubble.
-          if (e.key === 'Escape' && (text || error)) {
-            e.preventDefault()
-            e.stopPropagation()
-            setText('')
-            setError(null)
+          // Escape leaves the box and keeps the draft. It is not consumed: the pull
+          // request list listens for Escape on `window` to clear a bulk selection,
+          // and leaving a comment box must not disarm it. A declined Escape belongs
+          // to the input method (it is cancelling a candidate), so nothing else runs.
+          if (e.key === 'Escape') {
+            if (!ime.claimKey(e)) return
+            e.currentTarget.blur()
           }
           // Cmd/Ctrl+Enter sends. A bare Enter stays a newline: comments are prose.
           if (e.key === 'Enter' && (e.metaKey || e.ctrlKey)) { if (ime.claimEnter(e)) submit() }
@@ -88,6 +102,9 @@ export default function TimelineComposer({ itemKey, post }: {
             ? <Loader2 className="lucide-inline animate-spin" />
             : <Check className="lucide-inline" />}
           {i18nT('apps.issueRadar.components.prActionsBar.comment_submit')}
+        </Btn>
+        <Btn onClick={clear} disabled={!text && !error}>
+          {i18nT('apps.issueRadar.components.timelineComposer.clear')}
         </Btn>
         <span className="text-[11px] text-muted">
           {i18nT('apps.issueRadar.components.prActionsBar.submit_hint')}

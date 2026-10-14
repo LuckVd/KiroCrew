@@ -946,9 +946,15 @@ the write, so the two panes differ only in the route:
   always writes to the change-request collection. GitLab and Azure DevOps number issues and
   change requests independently, so an issue number sent there would comment on whichever
   change request carries that number.
-- **Cmd/Ctrl+Enter sends and Escape discards the draft**, as in the header bar's composer.
-  A failed post keeps the draft and shows the provider's reason. A post that settles after
-  the pane moved to another item neither clears nor blames that item's draft.
+- **Cmd/Ctrl+Enter sends. Escape leaves the box and keeps the draft.** The key still reaches
+  `window`, where the pull request list clears a bulk selection, so leaving a comment box
+  does not disarm it. An Escape the input method owns, such as cancelling a candidate, is
+  left to it. **Clear** is the one action that discards a draft, and it removes a failure
+  notice with it.
+- **A failed post keeps the draft and shows the provider's reason.** The box stays editable
+  while a post is in flight, and a success empties it only when the draft still reads as the
+  comment that was sent, so words typed since are kept. A post that settles after the pane
+  moved to another item neither clears nor blames that item's draft.
 - **The box is withheld on a repo connected read-only** (`canWrite`), the gate the write
   routes apply. After a post the pane re-reads the item, so the comment is the top node.
 

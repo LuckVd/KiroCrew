@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach, onTestFinished } from 'vitest'
-import { act, render, screen, waitFor } from '@testing-library/react'
+import { act, fireEvent, render, screen, waitFor } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 
@@ -21,8 +21,12 @@ import type {
 //  * A failed post keeps the draft and says why, and a post that settles after the
 //    pane moved to another item must not touch that item's draft.
 //  * A repo connected read-only never shows the box.
-//  * Escape that discards a draft stops there. The pull request list clears its bulk
-//    selection on a window-level Escape, and discarding a comment must not disarm it.
+//  * Typing while a post is in flight survives the post: a success empties the box only
+//    when the draft still reads as the sent comment.
+//  * Escape leaves the box and keeps the draft, and still reaches `window`, where the
+//    pull request list clears its bulk selection. An Escape the input method owns (it is
+//    cancelling a candidate) is left alone, in the live window and in the grace window
+//    after `compositionend`. Clear is the visible way to discard a draft.
 
 const api = {
   issueDetail: vi.fn(),
@@ -63,6 +67,7 @@ vi.mock('../apps/issue-radar/components/AiSummaryCard', () => ({
 
 const IssueDetail = (await import('../apps/issue-radar/components/IssueDetail')).default
 const PrDetail = (await import('../apps/issue-radar/components/PrDetail')).default
+const TimelineComposer = (await import('../apps/issue-radar/components/TimelineComposer')).default
 
 const REF = { owner: 'kirodotdev', repo: 'Kiro' }
 const SCOPE = 'github:github.com:kirodotdev/Kiro'
@@ -202,7 +207,7 @@ describe('issue pane — comment box at the head of the timeline', () => {
     expect(api.issueDetail).toHaveBeenCalledTimes(1)
   })
 
-  it('sends nothing for a blank draft, and Escape discards a draft', async () => {
+  it('sends nothing for a blank draft', async () => {
     api.issueDetail.mockResolvedValue(issueResponse(11, []))
     const user = userEvent.setup()
     renderIssue()
@@ -210,27 +215,6 @@ describe('issue pane — comment box at the head of the timeline', () => {
     const box = await screen.findByRole('textbox', BOX) as HTMLTextAreaElement
     await user.type(box, '   {Control>}{Enter}{/Control}')
     expect(api.addIssueComment).not.toHaveBeenCalled()
-    await user.clear(box)
-    await user.type(box, 'half a thought{Escape}')
-    expect(box.value).toBe('')
-  })
-
-  it('keeps the Escape that discards a draft to itself, and lets one through when there is none', async () => {
-    api.issueDetail.mockResolvedValue(issueResponse(11, []))
-    const seen = vi.fn()
-    window.addEventListener('keydown', seen)
-    onTestFinished(() => window.removeEventListener('keydown', seen))
-    const escapes = () => seen.mock.calls.filter(([e]) => (e as KeyboardEvent).key === 'Escape').length
-    const user = userEvent.setup()
-    renderIssue()
-
-    const box = await screen.findByRole('textbox', BOX) as HTMLTextAreaElement
-    await user.type(box, 'a draft{Escape}')
-    expect(box.value).toBe('')
-    expect(escapes()).toBe(0)
-    // Positive control: with nothing left to discard the key reaches the window listener.
-    await user.keyboard('{Escape}')
-    expect(escapes()).toBe(1)
   })
 
   it('sends once while a post is in flight, however many times the shortcut repeats', async () => {
@@ -321,5 +305,136 @@ describe('pull-request pane — comment box at the head of the timeline', () => 
     renderPull()
     await screen.findByRole('heading', { level: 1 })
     expect(screen.queryByRole('textbox', BOX)).toBeNull()
+  })
+})
+
+// The box on its own, with a post the test settles by hand. What a draft survives is a
+// property of the component, not of either pane that hosts it.
+describe('comment box — what a draft survives', () => {
+  function mount(post: (body: string) => Promise<unknown> = vi.fn()) {
+    render(<TimelineComposer itemKey="item#1" post={post} />)
+    return screen.getByRole('textbox', BOX) as HTMLTextAreaElement
+  }
+
+  /** Counts the Escape presses that reach `window`, where the pull request list listens. */
+  function escapesSeenOnWindow() {
+    const seen = vi.fn()
+    window.addEventListener('keydown', seen)
+    onTestFinished(() => window.removeEventListener('keydown', seen))
+    return () => seen.mock.calls.filter(([e]) => (e as KeyboardEvent).key === 'Escape').length
+  }
+
+  it('keeps words typed while the post is in flight, and the box stays editable', async () => {
+    let settle: (v?: unknown) => void = () => {}
+    const post = vi.fn(() => new Promise((r) => { settle = r }))
+    const user = userEvent.setup()
+    const box = mount(post)
+
+    await user.type(box, 'first thought')
+    await user.keyboard('{Control>}{Enter}{/Control}')
+    await waitFor(() => expect(post).toHaveBeenCalledWith('first thought'))
+    expect(box.disabled).toBe(false)
+    await user.type(box, ' and a second')
+    await act(async () => { settle() })
+
+    // The post ended for the item it was sent for, and the draft no longer reads as the
+    // sent comment, so it is left as the reader has it.
+    expect(box.value).toBe('first thought and a second')
+    expect(post).toHaveBeenCalledTimes(1)
+  })
+
+  it('still empties the box when only trailing whitespace was typed during the post', async () => {
+    let settle: (v?: unknown) => void = () => {}
+    const post = vi.fn(() => new Promise((r) => { settle = r }))
+    const user = userEvent.setup()
+    const box = mount(post)
+
+    await user.type(box, 'just this')
+    await user.keyboard('{Control>}{Enter}{/Control}')
+    await waitFor(() => expect(post).toHaveBeenCalledTimes(1))
+    await user.keyboard('{Enter}')
+    await act(async () => { settle() })
+
+    await waitFor(() => expect(box.value).toBe(''))
+  })
+
+  it('leaves the box on Escape, keeps the draft, and lets the key reach window', async () => {
+    const escapes = escapesSeenOnWindow()
+    const user = userEvent.setup()
+    const box = mount()
+
+    await user.type(box, 'a paragraph worth keeping')
+    expect(document.activeElement).toBe(box)
+    await user.keyboard('{Escape}')
+
+    expect(box.value).toBe('a paragraph worth keeping')
+    expect(document.activeElement).not.toBe(box)
+    expect(escapes()).toBe(1)
+  })
+
+  it('leaves an Escape that cancels a live IME candidate to the input method', () => {
+    const escapes = escapesSeenOnWindow()
+    const box = mount()
+    fireEvent.change(box, { target: { value: 'ありがとう' } })
+    act(() => box.focus())
+    fireEvent.compositionStart(box)
+
+    // A live composition's keydown carries the native `isComposing` flag. The default is
+    // KEPT, because the input method needs it to cancel the candidate list; fireEvent
+    // returns false when preventDefault was called.
+    const defaultKept = fireEvent.keyDown(box, { key: 'Escape', isComposing: true })
+
+    expect(defaultKept).toBe(true)
+    expect(box.value).toBe('ありがとう')
+    expect(document.activeElement).toBe(box)
+    expect(escapes()).toBe(0)
+  })
+
+  it('leaves an Escape inside the grace window after compositionend, then recovers', () => {
+    // On WebKit the keydown that cancels a candidate can arrive AFTER compositionend with
+    // `isComposing` already false; only the tracked latch identifies it. Fake timers hold
+    // the 50 ms window open, so a loaded runner cannot let it lapse between the two calls.
+    vi.useFakeTimers()
+    onTestFinished(() => { vi.useRealTimers() })
+    const escapes = escapesSeenOnWindow()
+    const box = mount()
+    fireEvent.change(box, { target: { value: '你好' } })
+    act(() => box.focus())
+    fireEvent.compositionStart(box)
+    fireEvent.compositionEnd(box)
+
+    const defaultKept = fireEvent.keyDown(box, { key: 'Escape' })
+    expect(defaultKept).toBe(false)
+    expect(document.activeElement).toBe(box)
+    expect(escapes()).toBe(0)
+
+    // Past the window the key is the reader's again.
+    act(() => { vi.advanceTimersByTime(60) })
+    fireEvent.keyDown(box, { key: 'Escape' })
+    expect(box.value).toBe('你好')
+    expect(document.activeElement).not.toBe(box)
+    expect(escapes()).toBe(1)
+  })
+
+  it('discards the draft and a failure notice only through Clear', async () => {
+    const post = vi.fn().mockRejectedValue(new Error('Resource not accessible by integration'))
+    const user = userEvent.setup()
+    const box = mount(post)
+    const clear = screen.getByRole('button', { name: 'Clear' }) as HTMLButtonElement
+
+    // Nothing to discard yet.
+    expect(clear.disabled).toBe(true)
+    await user.type(box, 'will not be sent')
+    expect(clear.disabled).toBe(false)
+    await user.keyboard('{Control>}{Enter}{/Control}')
+    expect(await screen.findByText(/Resource not accessible by integration/)).toBeTruthy()
+    expect(box.value).toBe('will not be sent')
+
+    await user.click(clear)
+
+    expect(box.value).toBe('')
+    expect(screen.queryByText(/Resource not accessible by integration/)).toBeNull()
+    expect(clear.disabled).toBe(true)
+    expect(post).toHaveBeenCalledTimes(1)
   })
 })
