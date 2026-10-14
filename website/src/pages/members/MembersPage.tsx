@@ -111,6 +111,7 @@ import { useLanguage } from '../../i18n/LanguageProvider'
 import { markSlotRead } from '../../store/dashboardSlice'
 import { emitSlotRead, flushSlotRead } from '../../lib/slotReadRelay'
 import { setViewedThreadSlot, clearViewedThreadSlot } from '../../lib/viewedThread'
+import { setMountedMemberThreadSlot, clearMountedMemberThreadSlot } from '../../lib/mountedMemberThread'
 import CrewAvatar from '../../components/CrewAvatar'
 import CrewStateAvatar from '../../components/CrewStateAvatar'
 import CrewLoopIndicator from '../../components/crew/CrewLoopIndicator'
@@ -119,7 +120,6 @@ import { Badge } from '../../components/ui'
 import { PILL_ACTIVITY_KEY, type PillActivityKind } from './pillActivity'
 import { useSlotActivity } from './useSlotActivity'
 import ChatPane from '../../components/ChatPane'
-import MateResumeCard from './MateResumeCard'
 import MateWelcomeCard from './MateWelcomeCard'
 import { useMateGreeting } from './mateGreeting'
 import type { ThreadHooks } from '../../app-sdk/messageRenderers'
@@ -3198,7 +3198,8 @@ export default function MembersPage() {
   // Who opened a running turn is read off the transcript, so a busy slot's
   // open waits for it: the thread confirms before the transcript lands.
   const pillLoopTurn = useAppSelector((s) => (pillSlotKey ? selectSlotTurnFromWake(s, pillSlotKey) : false))
-  const pillTranscriptKnown = useAppSelector((s) => (pillSlotKey ? selectSlotMessages(s, pillSlotKey).length > 0 : false))
+  const pillTranscript = useAppSelector((s) => selectSlotMessages(s, pillSlotKey))
+  const pillTranscriptKnown = pillTranscript.length > 0
   const greetingIdle = pillLoopTurn || (pillStreamState === 'idle' && !pillLiveSlot?.running)
   const { greeting: mateGreeting, failure: mateGreetingFailure, dismiss: dismissMateGreeting } = useMateGreeting(
     greetingIdle || pillTranscriptKnown ? confirmedSlot : '',
@@ -3273,6 +3274,15 @@ export default function MembersPage() {
       clearViewedThreadSlot(activeSlot)
     }
   }, [activeSlot, threadShown])
+
+  // Presence for return summaries is visible-mount based, not focus based.
+  // The unread registry above keeps its stricter focused-window rule.
+  const mountedThreadShown = !createOpen
+  useEffect(() => {
+    if (!activeSlot || !mountedThreadShown) return
+    setMountedMemberThreadSlot(activeSlot)
+    return () => clearMountedMemberThreadSlot(activeSlot)
+  }, [activeSlot, mountedThreadShown])
 
   // Per-row unread marker: the rail badge says "1", this says WHICH member.
   // Keyed the same way isRunning resolves a member's slot (thread-endpoint
@@ -5051,7 +5061,7 @@ export default function MembersPage() {
                  composer below may hold an unsaved draft. */
               <div className="px-4 pt-3">
                 <ErrorNotice
-                  message={t(mateGreetingFailure.kind === 'cold' ? 'pages.membersPage.welcome_failed' : 'pages.membersPage.resume_failed', { name: crewmateIdentity.label || crewmateIdentity.name })}
+                  message={t('pages.membersPage.welcome_failed', { name: crewmateIdentity.label || crewmateIdentity.name })}
                   report={reportForError(mateGreetingFailure.error)}
                   variant="inline"
                   askAgent={false}
@@ -5084,19 +5094,15 @@ export default function MembersPage() {
                     // The failure notice above owns the verdict on this thread
                     // while a repair has failed; the pane's own "Session
                     // ready" would contradict it one line down.
-                    // The crewmate's greeting already speaks for the empty chat.
                     hideEmptyHint={activeThreadFailed || !!mateGreeting}
                     foldBefore={freshStarts[activeSlot] ?? activeRoster?.reset_at}
                     // Under the floating header only when nothing sits between
                     // them (see the block above); a card between already paid.
                     topInset={betweenHeaderH > 0 ? 0 : headerInset}
                     crewmate={crewmateIdentity}
-                    // The greeting (cold welcome or warm resume) is a message
-                    // from the crewmate at the end of its chat, drawn here and
-                    // never sent: no model call, nothing in the transcript.
-                    crewmateGreeting={mateGreeting && crewmateIdentity && (mateGreeting.kind === 'warm'
-                      ? <MateResumeCard resume={mateGreeting.resume} crewmate={crewmateIdentity} onDismiss={dismissMateGreeting} />
-                      : <MateWelcomeCard recap={mateGreeting.recap} crewmate={crewmateIdentity} onDismiss={dismissMateGreeting} />)}
+                    crewmateGreeting={mateGreeting && crewmateIdentity
+                      ? <MateWelcomeCard recap={mateGreeting.recap} crewmate={crewmateIdentity} onDismiss={dismissMateGreeting} />
+                      : null}
                     onOpenCrewWorkLog={openCrewWorkLog}
                     openSideChat={openMemberSideChat}
                     threads={threadHooks}

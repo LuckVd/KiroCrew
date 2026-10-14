@@ -985,3 +985,53 @@ def test_a_recreate_won_refusal_keeps_the_write_owed() -> None:
     assert any(
         "_keep_owed_after_refusal(slot)" in line for line in between
     ), f"the recreate-won refusal does not keep the write owed: {between}"
+
+
+def test_flush_reports_a_guarded_save_refusal(tmp_path) -> None:
+    state = _state_with_slot(tmp_path)
+    slot = state.get_slot(NAME)
+    assert slot is not None
+
+    def retryable_refusal(owner, saved, **kwargs):
+        saved._dirty_gen += 1
+        saved._dirty = True
+        return False
+
+    coordinator = SimpleNamespace(
+        _slot_saver_provider=lambda: retryable_refusal,
+        _logger_provider=lambda: logging.getLogger(__name__),
+    )
+    slot._dirty = True
+
+    stored = DashboardPersistenceCoordinator.flush_slot_now(coordinator, state, slot)
+
+    assert stored is False
+    assert slot._dirty is True
+
+
+def test_flush_refusal_retries_only_when_the_saver_rearms_it(tmp_path) -> None:
+    """A permanent decline clears dirty; a retryable refusal advances its generation."""
+    state = _state_with_slot(tmp_path)
+    slot = state.get_slot(NAME)
+    assert slot is not None
+
+    permanent = SimpleNamespace(
+        _slot_saver_provider=lambda: (lambda owner, saved, **kwargs: False),
+        _logger_provider=lambda: logging.getLogger(__name__),
+    )
+    slot._dirty = True
+    assert DashboardPersistenceCoordinator.flush_slot_now(permanent, state, slot) is False
+    assert slot._dirty is False
+
+    def retryable(owner, saved, **kwargs):
+        saved._dirty_gen += 1
+        saved._dirty = True
+        return False
+
+    retry = SimpleNamespace(
+        _slot_saver_provider=lambda: retryable,
+        _logger_provider=lambda: logging.getLogger(__name__),
+    )
+    slot._dirty = True
+    assert DashboardPersistenceCoordinator.flush_slot_now(retry, state, slot) is False
+    assert slot._dirty is True

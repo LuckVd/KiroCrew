@@ -111,13 +111,13 @@ class DashboardPersistenceCoordinator:
             for slot in list(owner._slots.values()):
                 apply_pending_slot_memory_mode(owner, slot)
 
-    def flush_slot_now(self, owner: Any, slot: Any) -> None:
-        """Write one dirty slot and clear only the generation that was saved."""
+    def flush_slot_now(self, owner: Any, slot: Any) -> bool:
+        """Write one dirty slot; return whether this save reached durable history."""
         # Endpoint metadata is applied to the live slot before its guarded
         # history write.  Do not let this unpinned periodic writer make that
         # provisional value durable while the guarded writer is still waiting.
         if getattr(slot, "_metadata_persist_inflight", 0):
-            return
+            return False
         # Nor while the slot's NAME is being retracted. A fenced slot is still
         # the occupant of its name until the pop, so this 5-second pass still
         # visits it, and this write carries no ``expected_slot_name`` -- so the
@@ -128,14 +128,14 @@ class DashboardPersistenceCoordinator:
         # pass writes it if the close is abandoned, and a close that completes
         # persists the window itself through its own archival save.
         if getattr(slot, "is_closing", False):
-            return
+            return False
         if not owner.conversation_log:
-            return
+            return False
         # A queued user prompt is persisted by the metadata line, not by a row,
         # so an enqueue does not make the transcript dirty. Save on either
         # signal: ``_dirty`` for the window, queue drift for the queue.
         if not slot._dirty and not getattr(slot, "queue_persist_pending", False):
-            return
+            return True
         # A message-less slot has no window to write, but it can still owe a
         # metadata edit: a newborn from ``session_create`` has a birth line, and
         # a sidebar color, title or similar edit made before its first message
@@ -170,7 +170,7 @@ class DashboardPersistenceCoordinator:
             # metadata rebuild -- it does not request the ``rows_only`` deferral
             # that keeps another holder's folder, title and tag.
             if force:
-                save_slot_to_history(
+                saved = save_slot_to_history(
                     owner,
                     slot,
                     expected_slot_name=slot.key,
@@ -178,13 +178,21 @@ class DashboardPersistenceCoordinator:
                     refuse_stale_empty_merge=True,
                 )
             else:
-                save_slot_to_history(owner, slot, expected_slot_name=slot.key)
+                saved = save_slot_to_history(owner, slot, expected_slot_name=slot.key)
+            if saved is False:
+                # A retryable refusal advances the dirty generation through
+                # `_keep_owed_after_refusal`; a permanent decline does not.
+                if slot._dirty_gen == generation:
+                    slot._dirty = False
+                return False
         except Exception:
             # A failed write remains owed to the next periodic pass.
             self._logger_provider().warning("Flush failed for slot %s", slot.key, exc_info=True)
+            return False
         else:
             if slot._dirty_gen == generation:
                 slot._dirty = False
+            return True
 
     def _flush_dirty_slots(self, owner: Any) -> None:
         """Persist dirty transcripts, open tabs, then context snapshots."""

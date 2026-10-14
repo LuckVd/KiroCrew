@@ -36,6 +36,7 @@ if TYPE_CHECKING:
         deny_app_slot_access,
         effective_session_key,
         history_corpus_unreadable,
+        is_warm_task_brief_message,
         logger,
         parse_cls_meta,
         queue_entry_view,
@@ -497,6 +498,10 @@ def _append_unflushed_tail_from_offset(
     rows whose id did not, kept in window order. Where the persisted rows really
     are a prefix this returns the same answer, so it is a strict generalisation.
     """
+
+    def _unpersisted_warm_brief(row: dict) -> bool:
+        return is_warm_task_brief_message(row)
+
     if snapshot is None:
         snapshot = _snapshot_slot_window(slot)
     disk_older_count, window = snapshot
@@ -543,6 +548,8 @@ def _append_unflushed_tail_from_offset(
                 if pending:
                     owed_before.setdefault(at, []).extend(pending)
                     pending = []
+                continue
+            if _unpersisted_warm_brief(m):
                 continue
             pending.append(m)
         if not owed_before and not pending:
@@ -606,7 +613,8 @@ def _append_unflushed_tail_from_offset(
                     break
                 probe += 1
             if probe >= len(all_msgs):
-                owed_rows.append(m)
+                if not _unpersisted_warm_brief(m):
+                    owed_rows.append(m)
                 continue
             if owed_rows:
                 owed_at.setdefault(probe, []).extend(owed_rows)
@@ -635,6 +643,7 @@ def _append_unflushed_tail_from_offset(
             for m in window[start:]
             if m.get("role", "assistant") not in _UNOWED_WINDOW_ROLES
             and not _is_answered_permission(m)
+            and not _unpersisted_warm_brief(m)
         ]
         if not owed_at and not tail:
             return all_msgs
@@ -836,7 +845,35 @@ async def api_chat_slot_detail(request: web.Request) -> web.Response:
     # _disk_older_count gates whether to read disk AND provides the stable
     # slice boundary (set at restore/resume, never drifts with new messages).
     if limit_raw is None and before_raw is None:
+
+        def _durable_warm_rows(window: list[dict], disk: list[dict]) -> list[dict]:
+            durable_mids = {
+                meta["mid"]
+                for message in disk
+                for meta in [message.get("meta")]
+                if isinstance(meta, dict) and isinstance(meta.get("mid"), str)
+            }
+            return [
+                message
+                for message in window
+                if not (
+                    is_warm_task_brief_message(message)
+                    and isinstance((meta := message.get("meta")), dict)
+                    and meta.get("mid") not in durable_mids
+                )
+            ]
+
         mem_msgs = list(slot.messages)
+        warm_disk: list[dict] = []
+        if any(is_warm_task_brief_message(message) for message in mem_msgs):
+            if state.conversation_log:
+                try:
+                    warm_disk = await asyncio.to_thread(
+                        state.conversation_log.read_messages_chained, slot_history_key(slot)
+                    )
+                except Exception:
+                    logger.warning("warm-brief durability read failed", exc_info=True)
+            mem_msgs = _durable_warm_rows(mem_msgs, warm_disk)
         if slot._disk_older_count > 0 and state.conversation_log:
             history_key = slot_history_key(slot)
             try:
@@ -849,7 +886,7 @@ async def api_chat_slot_detail(request: web.Request) -> web.Response:
             older = disk_msgs[: slot._disk_older_count] if disk_msgs else []
             # Re-read the tail after the await: that suspension point lets a message
             # land mid-read, and the client replaces its list with this response.
-            messages = older + list(slot.messages)
+            messages = older + _durable_warm_rows(list(slot.messages), disk_msgs)
         elif state.conversation_log:
             # _disk_older_count == 0: the window is supposed to be the whole
             # session. But disk can grow beyond the window (a concurrent writer,
@@ -873,7 +910,7 @@ async def api_chat_slot_detail(request: web.Request) -> web.Response:
                     )
                     disk_msgs = []
                 # Re-read after the await to capture anything that arrived mid-read.
-                current_mem = list(slot.messages)
+                current_mem = _durable_warm_rows(list(slot.messages), disk_msgs)
                 # Post-await re-check: slot may have gained unflushed rows.
                 _slot_idle = (
                     len(current_mem) <= getattr(slot, "_disk_window_len", 0)

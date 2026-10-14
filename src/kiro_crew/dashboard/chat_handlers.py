@@ -537,6 +537,7 @@ from kiro_crew.validation import (  # noqa: F401
     normalize_theme_consent_sha,
     validate_tool_args,
 )
+from kiro_crew.warm_task_brief_contract import is_warm_task_brief_message  # noqa: F401
 
 if TYPE_CHECKING:  # circular at runtime: autonudge -> dashboard.chat -> chat_handlers
     from kiro_crew.autonudge import NudgeLoop  # noqa: F401
@@ -715,6 +716,9 @@ async def _reset_slot_session(
     the UI presenting a dead session's server list as the live one's — the
     stale-evidence failure that report exists to remove.
     """
+    from kiro_crew.dashboard.warm_task_brief import cancel_warm_task_brief
+
+    cancel_warm_task_brief(state, slot.key)
     _unblock_pending_waits(state, slot)
     if _test_interleave is not None:
         # The near side of the pop. Every teardown in the process funnels through

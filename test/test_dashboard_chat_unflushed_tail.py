@@ -536,3 +536,71 @@ class TestSlotDetailPaginationUnflushedTail:
         contents = [m["content"] for m in data["messages"]]
         for body in ("q1", "a1", "cron result"):
             assert contents.count(body) == 1, f"a hydrated row was served twice; got {contents}"
+
+
+@pytest.mark.parametrize("with_ids", [False, True])
+def test_durable_only_row_waits_for_its_disk_copy(with_ids):
+    """HTTP hydration must not publish a derived row before its save succeeds."""
+    from types import SimpleNamespace
+
+    from kiro_crew.dashboard.chat_handlers import _append_unflushed_tail
+
+    question = {"role": "user", "content": "ask", "ts": "t1"}
+    brief = {
+        "role": "assistant",
+        "content": "current task",
+        "ts": "t2",
+        "meta": {"kind": "warm_task_brief_result"},
+    }
+    if with_ids:
+        question["meta"] = {"mid": "m-question"}
+        brief["meta"]["mid"] = "m-brief"
+
+    slot = SimpleNamespace(messages=[question, brief], _disk_older_count=0)
+    pending = _append_unflushed_tail(slot, [question])
+    persisted = _append_unflushed_tail(slot, [question, brief])
+
+    assert pending == [question]
+    assert persisted == [question, brief]
+
+
+@pytest.mark.asyncio
+async def test_unbounded_detail_withholds_warm_brief_until_its_disk_row_exists(
+    tmp_path, monkeypatch
+):
+    """The legacy unbounded response follows the same persist-before-publish rule."""
+    from kiro_crew.dashboard.chat_persistence import _save_slot_to_history
+
+    monkeypatch.setattr("kiro_crew.dashboard.state.config_dir", lambda: tmp_path)
+    state = _make_state(tmp_path)
+    slot = state.get_or_create_slot("unbounded-warm")
+    slot.append("user", "task")
+    slot.drain()
+    _save_slot_to_history(state, slot, force=True)
+    slot.append(
+        "assistant",
+        "brief",
+        "msg msg-a",
+        broadcast=False,
+        meta={"kind": "warm_task_brief_result", "fingerprint": "fp"},
+    )
+
+    async with TestClient(TestServer(_make_app(state))) as client:
+        pending = await client.get("/api/chat/slots/unbounded-warm")
+        assert pending.status == 200
+        pending_rows = (await pending.json())["messages"]
+        assert all(
+            row.get("meta", {}).get("kind") != "warm_task_brief_result" for row in pending_rows
+        )
+
+        _save_slot_to_history(state, slot, force=True)
+        persisted = await client.get("/api/chat/slots/unbounded-warm")
+        assert persisted.status == 200
+        persisted_rows = (await persisted.json())["messages"]
+        assert (
+            sum(
+                row.get("meta", {}).get("kind") == "warm_task_brief_result"
+                for row in persisted_rows
+            )
+            == 1
+        )
