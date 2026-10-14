@@ -231,8 +231,9 @@ export default function MobileTopBar({
             </DropdownMenuItem>
           ) : (
             <>
+            {/* The pair names its two directions with the pane controls' own labels. */}
             <DropdownMenuItem className="[@media(hover:none)]:min-h-10" onSelect={() => enterSplit(activeSlot)}>
-              <span className="flex items-center gap-2"><Columns2 size={14} className="shrink-0 text-muted" /><span>{i18nT('pages.chatPage.enter_split_view')}</span></span>
+              <span className="flex items-center gap-2"><Columns2 size={14} className="shrink-0 text-muted" /><span>{i18nT('components.chatPane.split_right')}</span></span>
             </DropdownMenuItem>
             <DropdownMenuItem className="[@media(hover:none)]:min-h-10" onSelect={() => enterSplit(activeSlot, 'down')}>
               <span className="flex items-center gap-2"><Rows2 size={14} className="shrink-0 text-muted" /><span>{i18nT('components.chatPane.split_down')}</span></span>
