@@ -9362,6 +9362,7 @@
       "row_hidden_only": "Contém apenas itens ocultos (pastas de ferramentas e de cache ignoradas, entradas protegidas)",
       "row_linked": "Link para outra pasta: conteúdo não listado",
       "row_truncated": "Alguns itens não são exibidos: limite de 10.000 itens atingido",
+      "folder_listing_failed": "Não foi possível carregar todo o conteúdo de {{paths}}, então alguns itens podem estar faltando. Atualize para tentar de novo.",
       "row_unreadable_marker": "Não legível — veja o aviso acima",
       "row_unreadable_marker_dismissed": "Não legível — aviso dispensado",
       "root_unreadable": "Sem permissão para ler a pasta do espaço de trabalho",

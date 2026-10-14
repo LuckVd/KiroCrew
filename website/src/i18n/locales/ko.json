@@ -9090,6 +9090,7 @@
       "row_hidden_only": "숨김 항목만 포함되어 있음(건너뛴 도구·캐시 폴더, 보호된 항목)",
       "row_linked": "다른 폴더로의 링크: 내용은 목록에 표시되지 않음",
       "row_truncated": "일부 항목이 표시되지 않음: 항목 수 제한 10,000개에 도달했습니다",
+      "folder_listing_failed": "{{paths}}을(를) 모두 불러오지 못해 일부 항목이 빠졌을 수 있습니다. 다시 시도하려면 새로 고치세요.",
       "row_unreadable_marker": "읽을 수 없음 — 위의 알림 참조",
       "row_unreadable_marker_dismissed": "읽을 수 없음 — 알림이 닫혔습니다",
       "root_unreadable": "워크스페이스 폴더를 읽을 권한이 없습니다",

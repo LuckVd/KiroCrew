@@ -9362,6 +9362,7 @@
       "row_hidden_only": "Ne contient que des éléments cachés (dossiers d’outils et de cache ignorés, entrées protégées)",
       "row_linked": "Lien vers un autre dossier : contenu non listé",
       "row_truncated": "Certains éléments ne sont pas affichés : limite de 10 000 éléments atteinte",
+      "folder_listing_failed": "Impossible de charger tout {{paths}}, certains éléments peuvent donc manquer. Actualise pour réessayer.",
       "row_unreadable_marker": "Lecture impossible — voir l’avis ci-dessus",
       "row_unreadable_marker_dismissed": "Lecture impossible — avis ignoré",
       "root_unreadable": "Aucune autorisation de lecture du dossier de l’espace de travail",
