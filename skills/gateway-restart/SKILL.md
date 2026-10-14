@@ -77,8 +77,6 @@ monitor_start(
 
 ## Procedure
 
-Before step 1, run `kirocrew doctor` and include its `Gateway Boots` rows (when each retained start began and how it went) in what you tell the user. The rows are information only: the procedure below is the same whatever they say.
-
 ### 1. Check the session's automation slot
 
 Call `monitor_inspect`. If an active prompt loop or structured monitor already

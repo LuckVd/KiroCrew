@@ -375,7 +375,12 @@ def _dump_owner(dump_path: Path) -> tuple[int, str | None, str | None] | None:
     return pid, m.group(2), m.group(3)
 
 
-def _owner_alive(dump_path: Path, is_pid_alive: Callable[[int], bool]) -> bool | None:
+def _owner_alive(
+    dump_path: Path,
+    is_pid_alive: Callable[[int], bool],
+    *,
+    identity_required: bool = False,
+) -> bool | None:
     """Best-effort liveness of the gateway that owns *dump_path*.
 
     Returns ``True`` (owner confirmed alive), ``False`` (owner confirmed
@@ -397,6 +402,12 @@ def _owner_alive(dump_path: Path, is_pid_alive: Callable[[int], bool]) -> bool |
     ``ps``-rendered token that can never equal what is read now, and treating
     that as a mismatch would unlink the dump of a gateway that is still alive
     across the upgrade. See :func:`_start_ids_comparable`.
+
+    ``identity_required`` is for read-only diagnostics such as
+    :func:`last_boots`. When it is true, the own-PID shortcut is disabled and
+    a missing or incomparable start identity returns ``None`` (unknown)
+    instead of treating plain PID liveness as proof. Cleanup callers leave it
+    false, preserving their conservative retention behavior.
     """
     owner = _dump_owner(dump_path)
     if owner is None:
@@ -404,10 +415,18 @@ def _owner_alive(dump_path: Path, is_pid_alive: Callable[[int], bool]) -> bool |
     pid, domain, recorded_start = owner
     if domain is None or domain != _pid_domain():
         return None
-    if pid == os.getpid():
+    own_pid = pid == os.getpid()
+    if own_pid and not identity_required:
         return True
-    if not is_pid_alive(pid):
+    if not own_pid and not is_pid_alive(pid):
         return False
+    if identity_required:
+        if recorded_start is None:
+            return None
+        current_start = _pid_start_id(pid)
+        if current_start is None or not _start_ids_comparable(recorded_start, current_start):
+            return None
+        return current_start == recorded_start
     if recorded_start is not None:
         current_start = _pid_start_id(pid)
         if (
@@ -722,23 +741,23 @@ def last_boots(
     """The retained dump files as gateway starts, newest first, as ``(started, state)`` pairs.
 
     Every gateway start pre-creates a dump file (see :func:`dump_superseded`), so each retained
-    file is one start. The list is what is left AFTER the start-up sweep and the rotation: the
-    sweep (:func:`sweep_stale_dumps`) removes the header-only file of a session that is gone, and
-    rotation drops header-only files before any with stacks. So this is each stall on record (at
-    most ten) plus the newest start, not a complete boot history: a start that never wedged is
-    not listed once a later one has begun. ``state`` is read off the file and, for the newest
+    file is one start. The list is the newest ``_BOOTS_LISTED`` retained files left AFTER the
+    start-up sweep and the rotation: the retained stalls and newest start within that slice, not
+    a complete boot history. A start that never wedged is not listed once a later one has begun.
+    ``state`` is read off the file and, for the newest
     one, off its writer:
 
     * ``stalled``: the dump holds thread stacks, the test :func:`dumps_with_stacks` counts;
-    * ``running``: the newest file, no stacks, and the gateway that opened it is alive;
+    * ``running``: the newest file, no stacks, and the gateway that opened it is alive with a
+      matching start identity;
     * ``not running``: the newest file, no stacks, and that gateway is gone (the owner test the
       sweep uses, :func:`_owner_alive` with *is_pid_alive*; the next start removes this file);
     * ``clean so far``: not the newest, no stacks, and a later local boot started without wedging
       (:func:`dump_superseded`). The sweep removes such a file once its owner is gone, so one
       shows only while the owner cannot be shown gone;
     * ``unknown``: the dump cannot be read; the newest file's owner cannot be probed from here
-      (no ``# PID:`` line, another PID domain); or no stacks and no such successor. A missing
-      fact is never read as a clean or a running boot.
+      (no ``# PID:`` line, another PID domain, or missing/incomparable start identity); or no
+      stacks and no such successor. A missing fact is never read as a clean or a running boot.
 
     ``started`` is :func:`_boot_started`. Read-only; a file it cannot read costs that row its
     state, never the call.
@@ -750,7 +769,7 @@ def last_boots(
             if not _is_header_only(path):
                 state = "stalled"
             elif path == dumps[-1]:
-                alive = _owner_alive(path, is_pid_alive)
+                alive = _owner_alive(path, is_pid_alive, identity_required=True)
                 state = "unknown" if alive is None else ("running" if alive else "not running")
             elif dump_superseded(path, dumps_dir):
                 state = "clean so far"
