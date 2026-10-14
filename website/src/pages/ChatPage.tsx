@@ -1704,11 +1704,11 @@ export default function ChatPage({ mode, embedded, embedMode, popout, noUrlSync 
   )
 
   const { data: forkCfg } = useQuery<{ tail_fork_enabled?: boolean }>({ queryKey: ['dashboardConfig'], queryFn: fetchDashboardConfig, staleTime: 30_000 })
-  // The server forks the tail only while Tail-only Fork is on and otherwise answers a tail
-  // request with a history fork, so the explicit-direction entries are offered exactly then.
-  // A primitive, so it can sit in the transcript renderer's dependency list.
+  // While Tail-only Fork is on the plain entry forks the tail, so the menu also offers a fork with
+  // history; with it off the plain entry already forks with history. A primitive, so it can sit in
+  // the transcript renderer's dependency list.
   const forkDirectionChoice = forkCfg?.tail_fork_enabled === true
-  const handleFork = useCallback(async (visibleIndex: number, messageId?: string, explicitDirection?: 'head' | 'tail') => {
+  const handleFork = useCallback(async (visibleIndex: number, messageId?: string, explicitDirection?: 'head') => {
     if (!activeSlot) return
     try {
       // Fork WITHOUT a prompt: an unsent composer draft must never be

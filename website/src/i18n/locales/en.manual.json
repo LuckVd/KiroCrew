@@ -4881,7 +4881,7 @@
         "needs_earlier_history_count_other": "Select to load earlier history — {{count}} earlier messages remain",
         "share_message": "Share as image",
         "fork_with_history": "Fork with history",
-        "fork_tail_only": "Fork tail only",
+        "fork_without_earlier_messages": "Fork without earlier messages",
         "copy_failed": "Copy failed",
         "quote_message": "Quote message"
       },

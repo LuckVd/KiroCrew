@@ -11085,7 +11085,7 @@
         "needs_earlier_history_count_other": "Auswählen, um früheren Verlauf zu laden – noch {{count}} frühere Nachrichten",
         "share_message": "Als Bild teilen",
         "fork_with_history": "Mit Verlauf verzweigen",
-        "fork_tail_only": "Nur den Nachlauf verzweigen",
+        "fork_without_earlier_messages": "Ohne frühere Nachrichten verzweigen",
         "copy_failed": "Kopieren fehlgeschlagen",
         "quote_message": "Nachricht zitieren"
       },
