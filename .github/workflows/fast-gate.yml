@@ -595,3 +595,77 @@ jobs:
             test/test_security_posture.py \
             test/test_backend_cards.py \
             test/test_fold_catalogue.py
+
+  flake-pattern-ratchet:
+    # test/test_flake_pattern_ratchet.py holds every test file a change touches
+    # to its own count of flake-shaped sites at the change's merge-base. It also
+    # runs in the backend shards, but their depth-1 checkout has no parent
+    # commit to read, so there it warns `compared nothing` and passes: a new
+    # flake-shaped test landed silently. This job is the one place the ratchet
+    # has a real base. Static scan only: a git diff plus the changed files, so
+    # it answers in about a minute like the other gates here.
+    name: Flake Pattern Ratchet
+    if: github.event_name != 'push' || vars.MERGE_QUEUE_ENABLED != 'true'
+    runs-on: ${{ github.repository == 'kirodotdev/KiroCrew' && contains(fromJSON(vars.CODEBUILD_ACTOR_IDS || '[]'), github.actor_id) && (github.event_name == 'push' || github.event_name == 'merge_group' || (github.event_name == 'pull_request' && (github.event.action == 'opened' || github.event.action == 'synchronize') && github.event.pull_request.head.repo.full_name == github.repository)) && format('codebuild-kirocrew-gha-linux-{0}-{1}', github.run_id, github.run_attempt) || 'ubuntu-latest' }}
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+          # Depth 2, not the default 1: the commit this run checks out is a
+          # merge commit (the PR merge ref, or the merge queue's candidate),
+          # and depth 2 brings in both parents with their trees. The first
+          # parent IS the base the tree was merged onto, so `git merge-base`
+          # and `git show <base>:<path>` both answer without a second fetch.
+          fetch-depth: 2
+      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
+        with:
+          python-version: "3.12"
+      - uses: astral-sh/setup-uv@20cfd1bf945f4377ade1205e4dbc17946fc9a30d # v10.0.1
+        with:
+          enable-cache: true
+          cache-dependency-glob: |
+            pyproject.toml
+            setup.cfg
+      - name: Install dependencies
+        run: uv pip install --system -e . --group dev
+      # Same boundary as static-ratchets: setup actions under the runner
+      # identity, pytest through ci-shell as an unprivileged user.
+      - uses: ./.github/actions/run-as-runner
+      - name: Run the flake-pattern ratchet against this change's base
+        shell: /usr/local/bin/ci-shell {0}
+        env:
+          PYTHONPATH: ${{ github.workspace }}
+          # The base the event names: the PR's base branch tip, or the merge
+          # queue's base. On a push it is left empty and the ratchet reads the
+          # pushed commit's first parent itself (scripts/ratchet_scope.py).
+          FLAKE_RATCHET_BASE: ${{ github.event_name == 'pull_request' && github.event.pull_request.base.sha || github.event_name == 'merge_group' && github.event.merge_group.base_sha || '' }}
+        run: |
+          echo "::remove-matcher owner=python::"
+          # The merge ref is computed against the base branch tip when the run
+          # starts; if main moved between the event and the checkout, the
+          # event's sha is not this tree's parent and `git merge-base` would
+          # find nothing within the shallow horizon. The checked-out merge
+          # commit's first parent is, by construction, the commit this tree
+          # was merged onto, so it wins when the two disagree.
+          PARENT="$(git rev-parse --verify -q HEAD^1 || true)"
+          if [ -n "$FLAKE_RATCHET_BASE" ] && [ -n "$PARENT" ] && [ "$FLAKE_RATCHET_BASE" != "$PARENT" ]; then
+            echo "::notice::event base $FLAKE_RATCHET_BASE is not this merge commit's first parent $PARENT; measuring against the parent"
+            export FLAKE_RATCHET_BASE="$PARENT"
+          fi
+          # Self-test first, as every gate here does: the detectors' positive,
+          # negative and mutation cases, and the base resolver's own cases.
+          python -m pytest -q -n0 --no-cov test/test_flake_pattern_ratchet.py \
+            --deselect test/test_flake_pattern_ratchet.py::test_no_changed_file_gains_a_flaky_shape
+          # Then the ratchet itself. `-rA` surfaces its one stdout line, which
+          # names the base it compared with; without a base it warns `compared
+          # nothing` and PASSES, so that outcome is turned into a red here
+          # rather than a green that checked nothing.
+          LOG="$RUNNER_TEMP/flake-ratchet.log"
+          python -m pytest -q -n0 --no-cov -rA \
+            test/test_flake_pattern_ratchet.py::test_no_changed_file_gains_a_flaky_shape \
+            2>&1 | tee "$LOG"
+          if grep -q "compared nothing" "$LOG" || ! grep -q "^compared with " "$LOG"; then
+            echo "::error::the flake-pattern ratchet found no base to compare with; this job exists to give it one, so a run that compared nothing is a failed gate, not a pass"
+            exit 1
+          fi

@@ -25,9 +25,11 @@ each file a change touches is held to its own count at the change's merge-base.
   set; on CI the first parent of the merge commit a pull request, push or merge
   queue run checks out; else the newer of the merge-bases with ``upstream/<base>``
   and ``origin/<base>``, or the local ``<base>`` branch. When none is readable (a
-  shallow clone, as CI's backend shards are today), the ratchet warns and compares
+  shallow clone, as CI's backend shards are), the ratchet warns and compares
   nothing: judging against a stored count would red a change for sites that other,
-  already merged changes added.
+  already merged changes added. The blocking run is ``fast-gate.yml``'s
+  ``flake-pattern-ratchet`` job: a depth-2 checkout whose first parent is the base,
+  passed as ``FLAKE_RATCHET_BASE``, and a ``compared nothing`` there fails the job.
 * A line that keeps a shape on purpose carries ``# flake-ok: <reason>`` (``//
   flake-ok: <reason>`` in TypeScript) with a reason of ten characters or more, words
   not punctuation, on a line of the finding.
