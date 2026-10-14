@@ -34,6 +34,7 @@ from conftest import requires_symlinks
 from kiro_crew.apps import registry
 from kiro_crew.apps.manifest import AppManifest
 from kiro_crew.platform import PlatformCompositionError
+from kiro_crew.testing.wait import await_until
 
 #: The install's refusal for a root `data` the data directory cannot stand beside,
 #: as `manager.gateway_data_dir_obstruction` spells it -- the transaction must carry it
@@ -4499,7 +4500,7 @@ class TestTimeoutsAreReadWhereTheyAreUsed:
         monkeypatch.setattr(registry, "_KILL_GRACE_PERIOD", 0)
         proc = _NeverExits()
         # Bounded well below the real 5 s grace, so an inert patch fails here.
-        await asyncio.wait_for(registry._kill_process_group(proc), timeout=2)
+        await await_until(asyncio.ensure_future(registry._kill_process_group(proc)), what="kill")
         assert reaped == [proc]
 
     @pytest.mark.asyncio
@@ -4540,17 +4541,11 @@ class TestTimeoutsAreReadWhereTheyAreUsed:
         monkeypatch.setattr(registry, "_kill_process_group", _kill)
         monkeypatch.setattr(registry, "_CLONE_TIMEOUT", 0.01)
         log: list[str] = []
-        result = await asyncio.wait_for(
-            registry._git_fetch_branch(
-                "https://github.com/acme/demo-app.git",
-                "main",
-                dest,
-                log,
-                clone_env={},
-                sandbox_mode="strict",
-            ),
-            timeout=5,
-        )
+        fetch_task = asyncio.ensure_future(registry._git_fetch_branch(
+            "https://github.com/acme/demo-app.git", "main", dest,
+            log, clone_env={}, sandbox_mode="strict"
+        ))
+        result = await await_until(fetch_task, what="the clone fetch")
         assert result == {"ok": False, "name": "demo-app", "error": "git fetch failed (exit 124)"}
         assert len(killed) == 1 and isinstance(killed[0], _NeverExits)
         assert "timed out" in log
