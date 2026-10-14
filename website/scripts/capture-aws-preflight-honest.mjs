@@ -3,12 +3,15 @@
  *
  *  1. The AWS credentials row when the profile's credential_process helper is not on
  *     the gateway's PATH: the row names the helper and says to give it a full path,
- *     with the AWS CLI's own error underneath.
+ *     with the AWS CLI's own error underneath on its own monospace line.
  *  2. The Session Manager plugin row when the plugin is installed but the provenance
  *     check refused it, and AWS's package tree is owned by a third account: the row
- *     says where it was found and why, and the copyable command is the chown that
- *     clears it, not the install command.
+ *     says where it was found and why, links AWS's install page for the reinstall it
+ *     asks for, and the copyable command is the chown that clears it, not the install
+ *     command.
  *  3. The same refusal with no known fix: the reason, and no command.
+ *
+ * Each row shows one warning triangle: its own status circle.
  *
  * Runs the REAL built SPA (website/dist) behind the shared loopback static server
  * with every /api/** call answered from fixtures. It does not show the gateway's own
@@ -100,6 +103,15 @@ const extra = async (path, route) => {
 let failures = 0
 const fail = msg => { console.error(`FAIL: ${msg}`); failures++ }
 
+const INSTALL_URL =
+  'https://docs.aws.amazon.com/systems-manager/latest/userguide/session-manager-working-with-install-plugin.html'
+
+/** The row's warning circle marks the failed check; the notice inside draws no second triangle. */
+const oneTriangle = async (theme, row) => {
+  const n = await row.locator('.lucide-triangle-alert').count()
+  if (n !== 1) fail(`${theme}: the row must show one warning triangle, not ${n}`)
+}
+
 const { srv, base } = await serveDist()
 const browser = await chromium.launch()
 const VIEW = { width: 1220, height: 940 }
@@ -147,6 +159,13 @@ for (const theme of ['dark', 'light']) {
   if (!/No such file or directory: 'sso-cred-helper'/.test(text)) {
     fail(`${theme}: the AWS CLI's own error must stay under the sentence`)
   }
+  // The sentence leads; the CLI's error is its own smaller monospace line.
+  const raw = row.locator('.font-mono', { hasText: "No such file or directory: 'sso-cred-helper'" })
+  if ((await raw.count()) !== 1) fail(`${theme}: the CLI's error must be a separate monospace line`)
+  else if (/could not find sso-cred-helper/.test(await raw.innerText())) {
+    fail(`${theme}: the sentence must not run on into the CLI's error line`)
+  }
+  await oneTriangle(theme, row)
   await page.screenshot({ path: `${OUT}/01-credential-helper-missing-${theme}.png`, clip: await clipOf(page, row) })
   console.log(`wrote 01 (${theme})`)
   await page.close()
@@ -163,6 +182,9 @@ for (const theme of ['dark', 'light']) {
     fail(`${theme}: the row must say where the plugin was found: ${JSON.stringify(text)}`)
   }
   if (!/owned by another user \(uid 1501\)/.test(text)) fail(`${theme}: the row must give the reason`)
+  if (!/reinstall it from AWS first\. Then run the command below/.test(text)) {
+    fail(`${theme}: the row must ask for AWS provenance before the ownership command`)
+  }
   if (!/sudo chown -R root:wheel \/usr\/local\/sessionmanagerplugin/.test(text)) {
     fail(`${theme}: the copyable command must be the chown that clears the refusal`)
   }
@@ -170,6 +192,10 @@ for (const theme of ['dark', 'light']) {
   if (!(await row.getByRole('button', { name: /Copy command/i }).isVisible())) {
     fail(`${theme}: the fix must be copyable`)
   }
+  const install = row.getByRole('link', { name: /Open AWS’s Session Manager plugin install page/ })
+  if (!(await install.isVisible())) fail(`${theme}: "reinstall it from AWS first" must link AWS's install page`)
+  else if ((await install.getAttribute('href')) !== INSTALL_URL) fail(`${theme}: the link must open AWS's install page`)
+  await oneTriangle(theme, row)
   await page.screenshot({ path: `${OUT}/02-plugin-refused-with-fix-${theme}.png`, clip: await clipOf(page, row) })
   console.log(`wrote 02 (${theme})`)
   await page.close()
@@ -186,6 +212,7 @@ for (const theme of ['dark', 'light']) {
   if (await row.getByRole('button', { name: /Copy command/i }).count()) {
     fail(`${theme}: no Copy button with no command to copy`)
   }
+  await oneTriangle(theme, row)
   await page.screenshot({ path: `${OUT}/03-plugin-refused-no-fix-${theme}.png`, clip: await clipOf(page, row) })
   console.log(`wrote 03 (${theme})`)
   await page.close()
