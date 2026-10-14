@@ -1417,6 +1417,11 @@ async def api_chat(request: web.Request) -> web.StreamResponse:
             # the delivery ended -- a receipt withheld there would lose the only
             # record that a decision was made at all.
             decision_strip=_auto_strip,
+            # A steer that fell through here (unavailable, or refused as a
+            # duplicate) still means "act now": released past the sub-agent hold
+            # when this turn ends. An `auto` send Jev chose to queue is a real
+            # queue and waits like one.
+            steer_intent=bool(steer) and not request_app and not _auto_queues,
         )
         return web.json_response({"ok": True, "queued": True, "queue_id": qid})
 
@@ -3941,6 +3946,7 @@ async def stop_slot_turn(
             slot._steer_channel_origin.pop(_discarded, None)
             slot._steer_admissions.pop(_discarded, None)
             slot._steer_attachment_meta.pop(_discarded, None)
+            slot._steer_act_now.discard(_discarded)
             slot._steer_decision_strips.pop(_discarded, None)
             slot._steer_possibly_delivered.discard(_discarded)
         slot._pending_steers.clear()
