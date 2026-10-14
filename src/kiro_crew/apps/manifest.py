@@ -305,7 +305,11 @@ _AGENT_TEMPLATE_PLACEHOLDER_RE = re.compile(r"\{[A-Z][A-Z0-9_]*\}")
 
 
 def _declared_agent_names(
-    agent_paths: list[str], app_root: Path | None, unchecked: list[str] | None = None
+    agent_paths: list[str],
+    app_root: Path | None,
+    unchecked: list[str] | None = None,
+    *,
+    known_refusals: dict[str, str] | None = None,
 ) -> set[str]:
     """Names the app's own ``agents`` register under, for containing ``commands[].agent``.
 
@@ -323,14 +327,21 @@ def _declared_agent_names(
 
     ``unchecked``, when given, collects the paths the screen could not finish
     checking, so a caller can tell "names no agent" from "not checked yet".
+    ``known_refusals`` maps each path to the :func:`_app_path_refusal` answer the
+    caller already has for it in this pass, so no path is screened twice.
     """
     names: set[str] = set()
-    screened_root = screen_app_path(app_root) if app_root is not None and agent_paths else None
+    known = known_refusals if known_refusals is not None else {}
+    screened_root: str | Containment | None = None
+    if app_root is not None and any(str(rel) not in known for rel in agent_paths):
+        screened_root = screen_app_path(app_root)
     for rel in agent_paths:
         rel = str(rel)
         if not rel:
             continue
-        refusal = _app_path_refusal(rel, app_root, screened_root)
+        refusal = known.get(rel)
+        if refusal is None:
+            refusal = _app_path_refusal(rel, app_root, screened_root)
         if refusal:
             if refusal == PATH_UNVERIFIED_REFUSAL and unchecked is not None:
                 unchecked.append(rel)
@@ -2786,9 +2797,12 @@ class AppManifest:
         # backend.entryPoint. (A module-style dotted backend.entryPoint such as
         # 'kiro_crew.apps.builtins.x.server' has no '..' and is not absolute, so
         # the helper never false-positives on it.)
+        agent_refusals: dict[str, str] = {}
         for path_list_name in ("agents", "skills", "sops"):
             for p in getattr(self, path_list_name):
                 refusal = path_refusal(str(p))
+                if path_list_name == "agents":
+                    agent_refusals[str(p)] = refusal
                 if refusal:
                     report_path(refusal, f"{path_list_name} path {refusal}: {p!r}")
 
@@ -2961,7 +2975,9 @@ class AppManifest:
         commands_with_agent = [c for c in self.contributes.commands if c.agent]
         if commands_with_agent:
             unchecked_agents: list[str] = []
-            own = _declared_agent_names(self.agents, app_root, unchecked_agents)
+            own = _declared_agent_names(
+                self.agents, app_root, unchecked_agents, known_refusals=agent_refusals
+            )
             for cmd in commands_with_agent:
                 if cmd.agent in own:
                     continue

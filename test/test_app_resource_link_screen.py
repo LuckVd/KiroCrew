@@ -169,10 +169,12 @@ def test_every_builtin_manifest_passes_containment_against_its_own_root():
     assert manifests, "no built-in manifests found"
     offenders = {}
     for app_json in manifests:
-        errors = AppManifest.from_json_file(app_json).validate(app_root=app_json.parent)
-        containment = [e for e in errors if "path traversal" in e]
-        if containment:
-            offenders[app_json.parent.name] = containment
+        unchecked: list[str] = []
+        errors = AppManifest.from_json_file(app_json).validate(
+            app_root=app_json.parent, unchecked=unchecked
+        )
+        if errors or unchecked:
+            offenders[app_json.parent.name] = errors + unchecked
     assert offenders == {}
 
 
@@ -530,3 +532,21 @@ def test_validate_refuses_a_command_agent_behind_a_refused_path(tmp_path, monkey
 
     assert any("not one of this app's own agents" in e for e in errors), errors
     assert unchecked == []
+
+
+def test_validate_screens_each_path_once_when_a_command_names_an_agent(tmp_path, monkeypatch):
+    src = _make_app_source(tmp_path)
+    _bind_a_command_to_the_agent(src / APP_MANIFEST_FILENAME)
+    manifest = AppManifest.from_json_file(src / APP_MANIFEST_FILENAME)
+    screened: list[str] = []
+    real_screen = hooks.screen_file_path
+
+    def counting_screen(raw_path: str, **kwargs):
+        screened.append(raw_path)
+        return real_screen(raw_path, **kwargs)
+
+    monkeypatch.setattr(hooks, "screen_file_path", counting_screen)
+
+    assert manifest.validate(app_root=src) == []
+    assert screened.count(str(src)) == 1
+    assert screened.count(str(src / "agents" / _AGENT_FILE)) == 1
