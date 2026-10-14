@@ -1,11 +1,15 @@
 schema-version: 2026-04-28
 fixture-name: incognito-mix
 description: |
-  Three sessions differ only in memory_mode: persistent, incognito, and temporary.
+  Three sessions differ in memory_mode: persistent, incognito, and temporary.
+  The persistent and incognito sessions are also pinned, so a gateway with the
+  default config restores them as open tabs. The temporary session is not
+  pinned and is not restored as a tab.
   The production privacy classifier treats incognito and temporary as private,
   making this fixture suitable for exclusion tests without hand-built records.
-  Because the three transcripts are byte-identical except for memory_mode, a
-  passing privacy assertion cannot be explained by incidental differences.
+  Because the message rows of the three transcripts are byte-identical and the
+  metadata lines differ only in memory_mode and pinned, a passing privacy
+  assertion cannot be explained by incidental differences.
   Use case: verify incognito/temporary behavior natively against a known mix --
   e.g. a default-open-incognito toggle, where an agent seeds this scenario and
   checks which of the three sessions surface in history, memory, and search.
