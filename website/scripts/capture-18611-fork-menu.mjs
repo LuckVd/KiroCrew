@@ -5,10 +5,10 @@
  * (`forkIndex` + `forkMessageId`). `onFork` records its calls. Asserted, then shot:
  *
  *   setting-on       Tail-only Fork on: "Fork without earlier messages" (the fork icon), then
- *                    "Fork with history" (the history icon)
+ *                    "Fork with earlier messages" (the history icon)
  *   setting-off      Tail-only Fork off: the menu is unchanged, "Fork conversation from here" only
- *   fork-in-flight   after choosing Fork with history: the plain entry spins, "Fork with history" is
- *                    dimmed, and clicking either entry starts no second fork
+ *   fork-in-flight   after choosing Fork with earlier messages: that entry spins and is dimmed, the
+ *                    plain entry is dimmed with no spinner, and clicking either entry starts no second fork
  * Also asserted with hit-tested clicks (elementFromPoint at the item centre, then a real mouse click):
  *   plain entry -> onFork(1, 'm2')   history entry -> onFork(1, 'm2', 'head')
  *
@@ -58,9 +58,9 @@ const calls = page => page.evaluate(() => window.__forkCalls)
 {
   const { ctx, page, errors } = await open('theme=dark&choice=on')
   await openMore(page)
-  check('[on] fork entries = plain, then Fork with history', JSON.stringify(await forkIds(page)) === JSON.stringify(['fork-from-here', 'fork-with-history']))
+  check('[on] fork entries = plain, then Fork with earlier messages', JSON.stringify(await forkIds(page)) === JSON.stringify(['fork-from-here', 'fork-with-history']))
   check('[on] the plain entry says it leaves earlier messages out', (await text(page, 'fork-from-here')) === 'Fork without earlier messages')
-  check('[on] the other entry says it keeps them', (await text(page, 'fork-with-history')) === 'Fork with history')
+  check('[on] the other entry says it keeps them', (await text(page, 'fork-with-history')) === 'Fork with earlier messages')
   check('[on] the plain entry keeps the fork icon', await hasIcon(page, 'fork-from-here', 'git-fork') && !(await hasIcon(page, 'fork-from-here', 'history')))
   check('[on] the other entry has its own icon', await hasIcon(page, 'fork-with-history', 'history') && !(await hasIcon(page, 'fork-with-history', 'git-fork')))
   check('[on] no entry is held', (await page.getByTestId('fork-with-history').getAttribute('aria-disabled')) === null && (await page.getByTestId('fork-from-here').getAttribute('aria-disabled')) === null)
@@ -81,13 +81,14 @@ const calls = page => page.evaluate(() => window.__forkCalls)
 {
   const { ctx, page, errors } = await open('theme=dark&choice=on&inflight=1')
   await openMore(page)
-  check('[inflight] Fork with history is hit-tested', await hitTested(page, 'fork-with-history'))
+  check('[inflight] Fork with earlier messages is hit-tested', await hitTested(page, 'fork-with-history'))
   await page.getByTestId('fork-with-history').click(); await page.waitForTimeout(400)
   check('[inflight] the chosen entry calls onFork(1, m2, head) once', JSON.stringify(await calls(page)) === JSON.stringify([[1, 'm2', 'head']]))
   await openMore(page)
-  check('[inflight] Fork with history is held', (await page.getByTestId('fork-with-history').getAttribute('aria-disabled')) === 'true')
+  check('[inflight] Fork with earlier messages is held', (await page.getByTestId('fork-with-history').getAttribute('aria-disabled')) === 'true')
   check('[inflight] the plain entry is held too', (await page.getByTestId('fork-from-here').getAttribute('aria-disabled')) === 'true')
-  check('[inflight] the plain entry shows the spinner', await hasIcon(page, 'fork-from-here', 'loader-circle'))
+  check('[inflight] the chosen entry shows the spinner', await hasIcon(page, 'fork-with-history', 'loader-circle') && !(await hasIcon(page, 'fork-with-history', 'history')))
+  check('[inflight] the plain entry shows no spinner', !(await hasIcon(page, 'fork-from-here', 'loader-circle')) && await hasIcon(page, 'fork-from-here', 'git-fork'))
   await page.getByTestId('fork-from-here').click({ force: true }); await page.waitForTimeout(250)
   await page.getByTestId('fork-with-history').click({ force: true }); await page.waitForTimeout(250)
   check('[inflight] clicking either held entry starts no second fork', (await calls(page)).length === 1)
@@ -95,6 +96,7 @@ const calls = page => page.evaluate(() => window.__forkCalls)
   await page.mouse.move(730, 30); await page.waitForTimeout(500)
   const held = await page.getByTestId('fork-with-history').evaluate(el => ({ highlighted: el.hasAttribute('data-highlighted'), dimmed: getComputedStyle(el.firstElementChild).opacity }))
   check('[inflight] the held entry is dimmed', held.dimmed === '0.5')
+  check('[inflight] the plain entry is dimmed too', (await page.getByTestId('fork-from-here').evaluate(el => getComputedStyle(el.firstElementChild).opacity)) === '0.5')
   check('[inflight] no entry is highlighted in the still', !held.highlighted)
   await page.screenshot({ path: resolve(OUT, 'fork-menu-fork-in-flight.png') })
   check('[inflight] no page errors', errors.length === 0); await ctx.close()
