@@ -11,6 +11,7 @@ import { useAppDispatch, useAppSelector } from '../../store'
 import { DropdownMenu, DropdownMenuTrigger, DropdownMenuContent } from '../../components/ui/dropdown-menu'
 import { ContextMenu, ContextMenuTrigger, ContextMenuContent } from '../../components/ui/context-menu'
 import { offlineProps } from '../../utils/offline'
+import { crewOf } from '../../hooks/useInstanceSessions'
 import { switchSlot, selectSidebarWorkflowActive, selectAutomationForSlot } from '../../store/chatSlice'
 import { slotIsRemoteBound } from '../../store/dashboardSlice'
 import { api } from '../../api/client'
@@ -230,10 +231,24 @@ export const SessionRow = memo(function SessionRow({ view, actions }: SessionRow
     opensElsewhere, peerId, peerName,
   } = view
   const conductor = view.conductor
+  // An ADOPTED remote-crew row (a local slot that mirrors a peer session) has a ✕
+  // that releases only this machine's copy — the session stays live on its peer,
+  // and this hub cannot close it across the link. Relabel the ✕ "Release locally"
+  // and say so, instead of promising a durable "Close" the row never performs,
+  // which is what made the released row reappear on the next refresh (#19958).
+  // `!s.peer_id && crewOf(s)` is the repo's existing spelling of "adopted here": a
+  // peer row is owned elsewhere (no ✕ to relabel), and crewOf returns the crew a
+  // local slot's turns run on (executor === 'remote' with an instance_id).
+  const releaseLocally = !s.peer_id && !!crewOf(s)
   // A card with sessions under it says how far its ✕ reaches: this one session,
-  // never the ones it opened, which stay open and keep running.
-  const closeReachLabel = conductor && conductor.childCount > 0 ? i18nT('pages.chatSidebar.close_this_session_only') : undefined
-  const closeReachHint = conductor && conductor.childCount > 0 ? i18nT('pages.chatSidebar.close_keeps_children_hint') : undefined
+  // never the ones it opened, which stay open and keep running. The release label
+  // wins when both apply: a reappearing-after-close surprise is the sharper one.
+  const closeReachLabel = releaseLocally
+    ? i18nT('pages.chatSidebar.release_locally')
+    : conductor && conductor.childCount > 0 ? i18nT('pages.chatSidebar.close_this_session_only') : undefined
+  const closeReachHint = releaseLocally
+    ? i18nT('pages.chatSidebar.release_locally_hint')
+    : conductor && conductor.childCount > 0 ? i18nT('pages.chatSidebar.close_keeps_children_hint') : undefined
   const {
     connected, mode, isMobile, colorMode, defaultAgent, installedAgents, tagById, paletteColors, boost, boostFor,
     recentTintCount, dragInFlight, activeDraggedKey, activeDraggedPinnedIndex, guideOnRowControl,
@@ -957,9 +972,11 @@ export const SessionRow = memo(function SessionRow({ view, actions }: SessionRow
       // (when there is one) sits over the tree -- the menu need not repeat it.
       sidebarOnScreen: true,
       // On a card with sessions under it, the menu's Close says it reaches this
-      // one session only, as visible text: a phone has no hover tooltip.
+      // one session only, as visible text: a phone has no hover tooltip. On an
+      // adopted remote-crew row the same slot carries the "Release locally" label.
       closeHint: closeReachHint,
-    }), [rowKey, mode, onRenameStart, onAutoTitle, scope, rowTitle, onOpenSlotInNewTab, closeReachHint])
+      closeLabel: releaseLocally ? closeReachLabel : undefined,
+    }), [rowKey, mode, onRenameStart, onAutoTitle, scope, rowTitle, onOpenSlotInNewTab, closeReachHint, releaseLocally, closeReachLabel])
     const rowActions = useMemo(() => (void langGen, !renamingHere && !foreignRow ? (isMobile ? (
       <div className="absolute top-1/2 -translate-y-1/2 right-1.5 flex items-center gap-0.5">
         <DropdownMenu>
@@ -984,11 +1001,11 @@ export const SessionRow = memo(function SessionRow({ view, actions }: SessionRow
           </DropdownMenuContent>
         </DropdownMenu>
         <IconButton variant="accent" title={i18nT('pages.chatSidebar.duplicate')} aria-label={i18nT('pages.chatSidebar.duplicate')} {...uiLocation('sessions.row-duplicate')} onMouseDown={e => e.stopPropagation()} onClick={e => { e.stopPropagation(); onDuplicate(rowKey) }}><GitFork size={12} /></IconButton>
-        <IconButton variant="danger" title={closeReachLabel ?? i18nT('pages.chatSidebar.close')} aria-label={closeReachLabel !== undefined ? i18nT('pages.chatSidebar.close_this_session_only') : i18nT('pages.chatSidebar.close_session')} {...uiLocation('sessions.row-close')} onMouseDown={e => e.stopPropagation()} onClick={e => { e.stopPropagation(); onCloseSession(rowKey) }}><X size={12} /></IconButton>
+        <IconButton variant="danger" title={closeReachLabel ?? i18nT('pages.chatSidebar.close')} aria-label={releaseLocally ? i18nT('pages.chatSidebar.release_locally') : closeReachLabel !== undefined ? i18nT('pages.chatSidebar.close_this_session_only') : i18nT('pages.chatSidebar.close_session')} {...uiLocation('sessions.row-close')} onMouseDown={e => e.stopPropagation()} onClick={e => { e.stopPropagation(); onCloseSession(rowKey) }}><X size={12} /></IconButton>
       </IconButtonGroup>
     )) : null
     // `langGen` (read with `void` above) because the labels are i18nT strings, which re-translate on a catalog load.
-    ), [renamingHere, foreignRow, isMobile, isActive, guideOnRowControl, rowMenuProps, onMenuCloseAutoFocus, onDuplicate, onCloseSession, closeReachLabel, rowKey, langGen])
+    ), [renamingHere, foreignRow, isMobile, isActive, guideOnRowControl, rowMenuProps, onMenuCloseAutoFocus, onDuplicate, onCloseSession, closeReachLabel, releaseLocally, rowKey, langGen])
     const rowContextMenuContent = useMemo(() => (void langGen, !foreignRow ? (
       <ContextMenuContent className="min-w-[160px]" onClick={e => e.stopPropagation()} onCloseAutoFocus={onMenuCloseAutoFocus}>
         <SessionActionsMenu variant="context" {...rowMenuProps} />

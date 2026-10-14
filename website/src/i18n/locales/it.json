@@ -12646,6 +12646,8 @@
       "close_refused_other": "«{{title}}» è ancora aperta: la chiusura non è riuscita.",
       "close_this_session_only": "Chiudi solo questa sessione. Le sessioni sotto restano aperte.",
       "close_keeps_children_hint": "Le sessioni sotto restano aperte.",
+      "release_locally": "Rilascia localmente",
+      "release_locally_hint": "Rimuove questa copia. La sessione resta attiva sulla sua crew.",
       "board_update_failed": "Aggiornamento della board non riuscito",
       "open_crew_members": "Compagni",
       "open_crew_members_desc": "Apre la pagina Compagni: ogni membro è un agente permanente con il proprio thread.",

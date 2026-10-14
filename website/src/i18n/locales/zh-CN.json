@@ -12258,6 +12258,8 @@
       "close_refused_other": "“{{title}}”仍然打开着：关闭没有成功。",
       "close_this_session_only": "只关闭这个会话。它下面的会话会保持打开。",
       "close_keeps_children_hint": "它下面的会话会保持打开。",
+      "release_locally": "在本地释放",
+      "release_locally_hint": "移除此副本。该会话仍在其所属的 Crew 上运行。",
       "board_update_failed": "看板更新失败",
       "open_crew_members": "队友",
       "open_crew_members_desc": "打开队友页面——每个成员都是一个常驻代理，各有自己的话题。",

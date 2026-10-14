@@ -12646,6 +12646,8 @@
       "close_refused_other": "« {{title}} » est toujours ouverte : la fermeture n’a pas abouti.",
       "close_this_session_only": "Fermer uniquement cette session. Les sessions en dessous restent ouvertes.",
       "close_keeps_children_hint": "Les sessions en dessous restent ouvertes.",
+      "release_locally": "Libérer localement",
+      "release_locally_hint": "Retire cette copie. La session reste active sur sa crew.",
       "board_update_failed": "Échec de la mise à jour du tableau",
       "open_crew_members": "Coéquipiers",
       "open_crew_members_desc": "Ouvre la page Coéquipiers : chaque membre est un agent permanent avec son propre fil.",

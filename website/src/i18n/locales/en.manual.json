@@ -5800,6 +5800,8 @@
       "close_refused_other": "“{{title}}” is still open: the close didn't go through.",
       "close_this_session_only": "Close this session only. Sessions under it stay open.",
       "close_keeps_children_hint": "Sessions under it stay open.",
+      "release_locally": "Release locally",
+      "release_locally_hint": "Removes this copy. The session stays live on its crew.",
       "board_update_failed": "Board update failed",
       "open_crew_members": "Crewmates",
       "open_crew_members_desc": "Opens the Crewmates page — each member is a standing agent with its own thread.",

@@ -12452,6 +12452,8 @@
       "close_refused_other": "„{{title}}“ ist noch geöffnet: Das Schließen hat nicht geklappt.",
       "close_this_session_only": "Nur diese Sitzung schließen. Sitzungen darunter bleiben geöffnet.",
       "close_keeps_children_hint": "Sitzungen darunter bleiben geöffnet.",
+      "release_locally": "Lokal freigeben",
+      "release_locally_hint": "Entfernt diese Kopie. Die Sitzung bleibt auf ihrer Crew aktiv.",
       "board_update_failed": "Board-Aktualisierung fehlgeschlagen",
       "open_crew_members": "Crewmates",
       "open_crew_members_desc": "Öffnet die Seite Crewmates – jedes Mitglied ist ein dauerhafter Agent mit eigenem Thread.",

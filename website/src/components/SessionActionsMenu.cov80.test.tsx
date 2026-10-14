@@ -117,6 +117,22 @@ describe('SessionActionsMenu', () => {
     expect(actions.close).toHaveBeenCalledWith('zzq-slot')
   })
 
+  it('renders a custom closeLabel in place of "Close session", with and without a hint', () => {
+    // An adopted remote-crew row passes "Release locally": its ✕ releases only
+    // the local copy, so the default close label would misdescribe the action.
+    const { unmount } = setup({ closeLabel: 'Release locally' })
+    fireEvent.click(btn('Release locally'))
+    expect(actions.close).toHaveBeenCalledWith('zzq-slot')
+    expect(screen.queryByRole('button', { name: 'Close session' })).toBeNull()
+    unmount()
+
+    actions.close.mockReset()
+    setup({ closeLabel: 'Release locally', closeHint: 'Removes this copy. The session stays live on its crew.' })
+    expect(screen.getByTestId('close-item-hint').textContent).toBe('Removes this copy. The session stays live on its crew.')
+    fireEvent.click(btn(/Release locally/))
+    expect(actions.close).toHaveBeenCalledWith('zzq-slot')
+  })
+
   it('wires Reload session to the slot and disables it while a turn runs', () => {
     const { unmount } = setup()
     fireEvent.click(btn('Reload session'))

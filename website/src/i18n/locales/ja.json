@@ -12258,6 +12258,8 @@
       "close_refused_other": "「{{title}}」はまだ開いています。閉じる操作は完了しませんでした。",
       "close_this_session_only": "このセッションだけを閉じます。配下のセッションは開いたままです。",
       "close_keeps_children_hint": "配下のセッションは開いたままです。",
+      "release_locally": "ローカルで解放",
+      "release_locally_hint": "このコピーを削除します。セッションはクルー上で動作し続けます。",
       "board_update_failed": "ボードの更新に失敗しました",
       "open_crew_members": "クルーメイト",
       "open_crew_members_desc": "クルーメイトのページを開きます。各メンバーは常駐エージェントで、自分のスレッドを持ちます。",

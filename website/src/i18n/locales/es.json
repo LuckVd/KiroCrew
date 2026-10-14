@@ -12646,6 +12646,8 @@
       "close_refused_other": "\"{{title}}\" sigue abierta: no se pudo cerrar.",
       "close_this_session_only": "Cerrar solo esta sesión. Las sesiones que hay debajo siguen abiertas.",
       "close_keeps_children_hint": "Las sesiones que hay debajo siguen abiertas.",
+      "release_locally": "Liberar localmente",
+      "release_locally_hint": "Quita esta copia. La sesión sigue activa en su crew.",
       "board_update_failed": "Fallo al actualizar el tablero",
       "open_crew_members": "Compañeros",
       "open_crew_members_desc": "Abre la página Compañeros: cada miembro es un agente permanente con su propio hilo.",

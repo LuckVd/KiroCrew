@@ -64,6 +64,11 @@ export interface SessionActionsMenuProps {
   /** A second, muted line under Close that says what the press reaches. It wraps,
    *  so on a phone, where this menu is the only close, nothing is cut off. */
   closeHint?: string
+  /** Overrides the close item's label (default "Close session"). An adopted
+   *  remote-crew row passes "Release locally" here, because its ✕ releases only
+   *  this machine's copy — the session stays live on its peer — and the default
+   *  label would promise a durable close it never performs (#19958). */
+  closeLabel?: string
   /** Extra items rendered in the top "informational" group (header-only today:
    *  the MCP-servers submenu). Generic so the shared menu stays surface-agnostic. */
   infoSlots?: React.ReactNode[]
@@ -128,7 +133,7 @@ export function collapseGroups<T>(groups: (T | false | null | undefined)[][]): T
  *   [close]          Close session
  */
 export default function SessionActionsMenu({
-  variant, slotKey, mode, onReveal, onRename, onAutoTitle, onOpenInNewTab, onDuplicate, closeHint, infoSlots, onColorPicked, sidebarOnScreen = false, omitPopout = false,
+  variant, slotKey, mode, onReveal, onRename, onAutoTitle, onOpenInNewTab, onDuplicate, closeHint, closeLabel, infoSlots, onColorPicked, sidebarOnScreen = false, omitPopout = false,
 }: SessionActionsMenuProps) {
   const Item = variant === 'context' ? ContextMenuItem : DropdownMenuItem
   const Separator = variant === 'context' ? ContextMenuSeparator : DropdownMenuSeparator
@@ -465,12 +470,12 @@ export default function SessionActionsMenu({
           <>
             <X size={13} className="self-start mt-0.5 shrink-0" />
             <span className="flex min-w-0 flex-col">
-              <span>{i18nT('components.sessionActionsMenu.close_session')}</span>
+              <span>{closeLabel ?? i18nT('components.sessionActionsMenu.close_session')}</span>
               <span className="max-w-[15rem] whitespace-normal text-[11px] leading-snug text-muted" data-testid="close-item-hint">{closeHint}</span>
             </span>
           </>
         ) : (
-          <><X size={13} /> {i18nT('components.sessionActionsMenu.close_session')}</>
+          <><X size={13} /> {closeLabel ?? i18nT('components.sessionActionsMenu.close_session')}</>
         )}
       </Item>,
     ],
