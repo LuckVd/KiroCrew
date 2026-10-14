@@ -65,7 +65,6 @@
  1 test_apps_registry.py
  2 test_apps_registry_coverage.py
  2 test_apps_routes_coverage.py
- 2 test_apps_worker_slots.py
  1 test_artifacts_refactor_store_contract.py
 12 test_auto_improvement_members.py
  2 test_auto_research.py
