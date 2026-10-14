@@ -782,6 +782,8 @@ describe('AssistantMessage', () => {
       fireEvent.click(screen.getByTestId('fork-with-history'))
       expect(onFork).toHaveBeenCalledTimes(1)
       openOverflow()
+      expect(screen.getByTestId('fork-with-history').querySelector('svg.lucide-loader-circle')).toBeInTheDocument()
+      expect(screen.getByTestId('fork-from-here').querySelector('svg.lucide-loader-circle')).not.toBeInTheDocument()
       expect(screen.getByTestId('fork-with-history')).toHaveAttribute('aria-disabled', 'true')
       // Held reads as held: dimmed, not only aria-disabled (a held item is not Radix-disabled, so it is not dimmed for free).
       expect(screen.getByTestId('fork-with-history').firstElementChild).toHaveClass('opacity-50')
@@ -804,6 +806,8 @@ describe('AssistantMessage', () => {
       fireEvent.click(screen.getByTestId('fork-from-here'))
       expect(onFork).toHaveBeenCalledTimes(1)
       openOverflow()
+      expect(screen.getByTestId('fork-from-here').querySelector('svg.lucide-loader-circle')).toBeInTheDocument()
+      expect(screen.getByTestId('fork-with-history').querySelector('svg.lucide-loader-circle')).not.toBeInTheDocument()
       expect(screen.getByTestId('fork-with-history')).toHaveAttribute('aria-disabled', 'true')
       fireEvent.click(screen.getByTestId('fork-with-history'))
       expect(onFork).toHaveBeenCalledTimes(1)

@@ -140,7 +140,7 @@ const AssistantMessage = memo(function AssistantMessage({ content, isStreaming, 
       : state === 'failed' ? i18nT('pages.chat.assistantMessage.copy_failed')
         : idle
   const [shareOpen, setShareOpen] = useState(false)
-  const [busyAction, setBusyAction] = useState<'fork' | null>(null)
+  const [busyAction, setBusyAction] = useState<'fork' | 'fork-with-history' | null>(null)
   // The disabled reason is VISIBLE text, so it needs an id to be referenced by
   // rather than a tooltip only a patient mouse can reach.
   const reasonId = useId()
@@ -159,7 +159,7 @@ const AssistantMessage = memo(function AssistantMessage({ content, isStreaming, 
   const plainForkLabel = forkWithHistory ? i18nT('pages.chat.assistantMessage.fork_without_earlier_messages') : forkLabel
   const runForkAction = async (direction?: 'head') => {
     if (!onFork || forkIndex === undefined || busyAction !== null) return
-    setBusyAction('fork')
+    setBusyAction(direction === 'head' ? 'fork-with-history' : 'fork')
     try {
       await (direction ? onFork(forkIndex, forkMessageId, direction) : forkMessageId ? onFork(forkIndex, forkMessageId) : onFork(forkIndex))
     } finally {
@@ -599,7 +599,7 @@ const AssistantMessage = memo(function AssistantMessage({ content, isStreaming, 
               }}
             >
               <span className={`flex items-center gap-2 ${busyAction !== null ? 'opacity-50' : ''}`}>
-                <History size={13} className="shrink-0" />
+                {busyAction === 'fork-with-history' ? <Loader2 size={13} className="shrink-0 animate-spin" /> : <History size={13} className="shrink-0" />}
                 <span>{i18nT('pages.chat.assistantMessage.fork_with_history')}</span>
               </span>
             </DropdownMenuItem>
