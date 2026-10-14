@@ -17,6 +17,7 @@ import { describe, it, expect, vi } from 'vitest'
 import { fireEvent, render } from '@testing-library/react'
 import { readFileSync, readdirSync, statSync } from 'node:fs'
 import { join } from 'node:path'
+import { membersPagePaths } from './membersPageFamily'
 
 import ResizeHandle from '../components/ResizeHandle'
 import type { usePointerDrag } from '../hooks/usePointerDrag'
@@ -48,7 +49,8 @@ function sidebarFiles(): string[] {
 
 const SURFACES: ReadonlyArray<readonly [name: string, files: readonly string[]]> = [
   ['ChatSidebar', sidebarFiles()],
-  ['MembersPage', [join(process.cwd(), 'src', 'pages', 'members', 'MembersPage.tsx')]],
+  // The roster column draws the grip; the negative half reads every file of the page.
+  ['MembersPage', [join(process.cwd(), 'src', 'pages', 'members', 'MembersPageRoster.tsx'), ...membersPagePaths()]],
 ]
 
 describe('column resize grip — one component on both pages', () => {

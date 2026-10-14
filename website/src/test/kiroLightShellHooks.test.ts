@@ -15,6 +15,7 @@
 import { describe, it, expect } from 'vitest'
 import { readFileSync, readdirSync, statSync } from 'node:fs'
 import { join } from 'node:path'
+import { readMembersPage } from './membersPageFamily'
 
 const read = (...p: string[]) => readFileSync(join(__dirname, '..', ...p), 'utf8')
 
@@ -32,10 +33,11 @@ function sidebarOwnerSources(): string[] {
   return out
 }
 
-/** A page's surface for the negative half: the sidebar shell joined with its owners, any
- *  other page its one file. */
+/** A page's surface for the negative half: the sidebar shell joined with its owners, the
+ *  Crewmates page every file it is built from, any other page its one file. */
 const surface = (file: string[]) =>
-  file.join('/') === 'pages/ChatSidebar.tsx' ? [read(...file), ...sidebarOwnerSources()].join('\n') : read(...file)
+  file.join('/') === 'pages/ChatSidebar.tsx' ? [read(...file), ...sidebarOwnerSources()].join('\n')
+    : file[1] === 'members' ? readMembersPage() : read(...file)
 const css = read('index.css')
 
 /** hook class -> the source that must render it, and the regex proving it does */
@@ -82,7 +84,7 @@ describe('kiro-light shell hooks', () => {
 
   it.each([
     ['pages', 'ChatSidebar.tsx'],
-    ['pages', 'members', 'MembersPage.tsx'],
+    ['pages', 'members', 'MembersPageRoster.tsx'],
   ])('%s/%s mounts the shared list shell, so the kiro-light --panel step-back reaches both cards', (...file) => {
     // The roster once carried its own bg-bg-elevated card and stayed white on
     // the white canvas while the sessions list beside it stepped back to

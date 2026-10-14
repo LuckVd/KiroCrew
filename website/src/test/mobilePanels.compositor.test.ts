@@ -25,6 +25,7 @@
 import { describe, it, expect } from 'vitest'
 import { readdirSync, readFileSync } from 'node:fs'
 import { resolve } from 'node:path'
+import { readMembersPage } from './membersPageFamily'
 
 const app = readFileSync(resolve(__dirname, '../App.tsx'), 'utf8')
 // ChatPage composes owners under pages/chat/page/ (and its useChatPage* siblings), so
@@ -38,7 +39,7 @@ const chat = [
   ...readdirSync(PAGES_DIR).filter(f => /^useChatPage/.test(f) && isSource(f)).sort()
     .map(f => readFileSync(resolve(PAGES_DIR, f), 'utf8')),
 ].join('\n')
-const members = readFileSync(resolve(__dirname, '../pages/members/MembersPage.tsx'), 'utf8')
+const members = readMembersPage()
 const hook = readFileSync(resolve(__dirname, '../hooks/useDrawerSwipe.ts'), 'utf8')
 
 describe('mobile nav drawer (left) — compositor pairing', () => {
