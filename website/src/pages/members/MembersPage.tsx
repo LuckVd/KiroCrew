@@ -3342,20 +3342,23 @@ export default function MembersPage() {
   // A websocket record wins while live; the focused read supplies retained
   // stopped state and full owner-gated structured details.
   const activeAutomation = active ? automationOf(active) : null
+  const profileSlot = activeSlot || active?.slot_key || ''
   const profileMonitorQuery = useQuery({
-    queryKey: ['session-automation', activeSlot],
-    enabled: !!profile && !!activeSlot,
-    queryFn: () => readSessionAutomationSnapshot(activeSlot!),
+    queryKey: ['session-automation', profileSlot],
+    enabled: !!profile && !!profileSlot,
+    queryFn: () => readSessionAutomationSnapshot(profileSlot),
     staleTime: 0,
   })
-  const profileAutomation = profileMonitorQuery.isSuccess
-    ? profileMonitorQuery.data
-    : activeAutomation
-  const profileMonitorReadState = profileMonitorQuery.isSuccess || activeAutomation
+  const profileMonitorReadState = !profileSlot
     ? 'ready' as const
     : profileMonitorQuery.isError
       ? 'error' as const
-      : 'loading' as const
+      : profileMonitorQuery.isSuccess || activeAutomation
+        ? 'ready' as const
+        : 'loading' as const
+  const profileAutomation = profileMonitorReadState === 'error'
+    ? null
+    : activeAutomation ?? profileMonitorQuery.data ?? null
   // The live facts the status filters read, resolved per row from the same
   // automation record as its avatar and Profile details.
   const signalsOf = useCallback(
@@ -4129,7 +4132,7 @@ export default function MembersPage() {
             whichever drawer happens to be open. Same shared notice as the
             drawer block; a read failure on a page holding no draft is safe
             to hand to the agent. */}
-        {patrolQuery.data === undefined && patrolQuery.isError && (
+        {patrolQuery.isError && (
           <div className="px-4 pb-2">
             <ErrorNotice
               message={t('pages.membersPage.patrol_error_roster')}
@@ -4855,12 +4858,12 @@ export default function MembersPage() {
                 is visible and this wrapper steps aside; below md the roster is
                 hidden regardless of the pin. No hand-off: the Profile card may
                 hold an unsaved schedule draft, and Ask the agent navigates away. */}
-            {(patrolQuery.data === undefined && patrolQuery.isError || teamsNoticeShown || starError) && (
+            {(patrolQuery.isError || teamsNoticeShown || starError) && (
               <div
                 className={`${rosterPinned ? 'md:hidden' : ''} flex flex-col gap-2 px-4 pb-2`}
                 data-testid="member-main-roster-errors"
               >
-                {patrolQuery.data === undefined && patrolQuery.isError && (
+                {patrolQuery.isError && (
                   <ErrorNotice
                     message={t('pages.membersPage.patrol_error_roster')}
                     variant="inline"
