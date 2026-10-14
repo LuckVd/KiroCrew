@@ -20468,7 +20468,7 @@ async def _run_chat(
                 "capability_harness_unsupported: This crew member has saved "
                 "capabilities, and the backend its chats run on "
                 "(agent.member_acp_backend, not agent.acp_backend) cannot load "
-                "them. Set agent.member_acp_backend to kas or kiro-cli, or reset "
+                "them. Set agent.member_acp_backend to kas or kiro, or reset "
                 "the member's Capabilities page, then start a new chat."
             )
             _err_meta = _terminal_error_meta(exc)
@@ -20482,7 +20482,7 @@ async def _run_chat(
                 "its chats run on (agent.member_acp_backend) cannot turn off single "
                 "tools, so they would be on. On the member's Capabilities page, turn "
                 "the whole server off or turn those tools back on, or set "
-                "agent.member_acp_backend to kiro-cli, then start a new chat."
+                "agent.member_acp_backend to kiro, then start a new chat."
             )
             _err_meta = _terminal_error_meta(exc)
         else:

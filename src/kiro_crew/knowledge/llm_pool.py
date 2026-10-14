@@ -21,6 +21,7 @@ from kiro_crew.agent_sdk.backends import (
     ACP_BACKEND_KIRO,
     POLICY_ID_BY_BACKEND,
     Routing,
+    backend_from_stored,
     effort_config_option_id,
     effort_config_option_value,
     resolve_selected_backend,
@@ -198,11 +199,15 @@ def _get_acp_backend(config: Optional[dict] = None) -> str:
     kas/codex, which need ``AcpRuntime`` and have no arm in ``AcpClient._spawn``).
 
     The pool reads raw ``config.json``, which never passed the loader's
-    normalizer, so an unselectable or malformed value degrades to Kiro here --
+    normalizer, so the stored vocabulary is translated first (``"kiro"`` is Kiro
+    CLI, absent or ``""`` is the default) and an unselectable or malformed value
+    degrades to Kiro here --
     and so does a resolved value that fails either capability check above.
     """
     data = _read_config() if config is None else config
-    resolved = resolve_selected_backend(_section(data, "agent").get("acp_backend"))
+    resolved = resolve_selected_backend(
+        backend_from_stored(_section(data, "agent").get("acp_backend"))
+    )
     if not capabilities_for(resolved).honors_zero_tool_ban:
         if resolved not in _WARNED_UNSAFE_BACKENDS:
             _WARNED_UNSAFE_BACKENDS.add(resolved)
