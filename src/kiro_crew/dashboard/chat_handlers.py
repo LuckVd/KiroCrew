@@ -252,7 +252,7 @@ from kiro_crew.dashboard.slot_projection import (  # noqa: F401
     resolved_row_identity,
     stop_declined_armed,
 )
-from kiro_crew.dashboard.slot_queue_repository import warn_if_not_durable
+from kiro_crew.dashboard.slot_queue_repository import RESTORED_QUEUE_KEY, warn_if_not_durable
 from kiro_crew.dashboard.slot_retention import (  # noqa: F401
     loop_slot_keys,
     select_idle_slot_keys,
@@ -4204,6 +4204,10 @@ async def api_chat_slot_continue(request: web.Request) -> web.Response:
             state,
             slot,
             directive_user_origin=not bool(request.get("app", "")),
+            # The dashboard Resume button is a human-initiated action: allow
+            # draining a fully-restored queue after the recovery. Agent tools
+            # keep the default False to avoid dispatching restored cards.
+            allow_restored_queue=True,
             # Same-name registration can change while the lock or child probe waits.
             replaced=lambda: _slot_replaced_while_queued(
                 state, slot, name, request, "chat.slot_continue"
@@ -4238,6 +4242,7 @@ async def continue_slot_turn(
     directive_user_origin: bool,
     via: str = "",
     require_interrupted: bool = False,
+    allow_restored_queue: bool = False,
     before_dispatch: Callable[[], None] | None = None,
     extra_meta: dict[str, Any] | None = None,
     replaced: Callable[[], bool] | None = None,
@@ -4255,7 +4260,10 @@ async def continue_slot_turn(
     cannot.
 
     ``require_interrupted`` refuses a slot whose last turn did not fail
-    (``turn_not_failed``); Continue leaves it off. ``before_dispatch`` runs
+    (``turn_not_failed``); Continue leaves it off. ``allow_restored_queue``
+    allows Resume on an interrupted slot whose queue was fully restored from
+    disk (``RESTORED_QUEUE_KEY=True``); agent tools leave it off to keep the
+    original refusal. ``before_dispatch`` runs
     synchronously under the slot lock immediately before the queue insert and
     may raise :class:`SlotContinueRefusal`. ``via`` is recorded on the
     ``dashboard_continue`` audit line when set. ``extra_meta`` is merged into
@@ -4274,23 +4282,36 @@ async def continue_slot_turn(
         if slot._stopping or slot._stop_state != "idle":
             raise SlotContinueRefusal("a stop is in progress", "slot_stopping")
         if slot.queue_depth:
-            # Three cases:
+            # Three cases for the dashboard Resume button (allow_restored_queue=True):
             #
             # 1. Not interrupted (clean finish + live queue): the runner is
             #    about to drain the queue on its own; adding a recovery here
             #    would double-fire the turn.
             #
-            # 2. Interrupted + no pending recovery: the slot was cut off by a
-            #    restart and its queue is from the previous process -- nothing
-            #    drains it on boot. Resume is allowed: the recovery is inserted
-            #    at position 0 so the interrupted turn runs first, then the
-            #    restored items drain in order.
+            # 1b. Interrupted + live (non-restored) queue: the slot was cut
+            #    off while a sign-in or memory-preparation hold was keeping an
+            #    entry from draining. On restart the hold may be gone and the
+            #    runner will drain the entry once the hold clears. Resume here
+            #    would race with that drain. Entries from the previous process
+            #    are tagged ``RESTORED_QUEUE_KEY`` by sanitize_restored_queue;
+            #    entries without the tag arrived in THIS process and cannot be
+            #    assumed non-drainable.
             #
-            # 3. Interrupted + recovery already at head: the first Resume press
-            #    already enqueued a recovery. A second press before that one
-            #    starts would insert a duplicate; refuse it as a no-op.
-            if not _is_interrupted(slot) or (
-                slot._queue and slot._queue[0].get("kind") == SYNTHETIC_RECOVERY_KIND
+            #    Note: an inserted recovery entry (``SYNTHETIC_RECOVERY_KIND``)
+            #    also lacks ``RESTORED_QUEUE_KEY``, so case 1b also catches the
+            #    second-Resume press (no separate case 3 needed).
+            #
+            # 2. Interrupted + ALL entries restored: allow; insert recovery at
+            #    position 0.
+            #
+            # When allow_restored_queue is False (agent-tool callers:
+            # session_retry, session_continue): any queue is refused, matching
+            # the pre-PR behavior. Restored cards must not be auto-dispatched
+            # by an agent call without explicit human choice.
+            if (
+                not allow_restored_queue
+                or not _is_interrupted(slot)
+                or (slot._queue and not all(e.get(RESTORED_QUEUE_KEY) for e in slot._queue))
             ):
                 raise SlotContinueRefusal("queued messages pending", "slot_queue_pending")
         if any(not f.done() for f in slot._approval_futures.values()):
