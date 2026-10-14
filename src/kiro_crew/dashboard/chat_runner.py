@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import asyncio
+import difflib  # noqa: F401
 import functools  # noqa: F401
 import hashlib
 import inspect
@@ -186,8 +187,12 @@ from kiro_crew.dashboard.chat_turn.directives import (  # noqa: F401
 from kiro_crew.dashboard.chat_turn.file_changes import (  # noqa: F401
     _PATH_TRUNCATION_MARKER,
     _apply_turn_snapshot_budget,
+    _budgeted_opcodes,
     _classify_str_replace_before,
+    _disk_digest,
     _excerpt_pair,
+    _failed_write_entries,
+    _forget_entries,
     _line_change_input,
     _note_reply_row,
     _pending_str_replace_payload,
@@ -196,6 +201,7 @@ from kiro_crew.dashboard.chat_turn.file_changes import (  # noqa: F401
     _resolve_pending_str_replace,
     _safe_read_file_text,
     _safe_read_snapshot,
+    _settle_failed_write,
     _Snapshot,
     _snapshot_write_target,
     _truncate_snapshot,
@@ -2069,9 +2075,14 @@ _MAX_TURN_FULL_CONTENT_CHARS = 2 * _MAX_RECONSTRUCT_BYTES
 # Unchanged lines ``_excerpt_pair`` shows around each changed run of a windowed
 # large-file diff. Runs closer than twice this share one window.
 _EXCERPT_CONTEXT_LINES = 20
+# Work ``_excerpt_pair``'s line diff may do, in line-occurrence visits
+# (``_budgeted_opcodes``). Repeated lines make that diff superlinear; past this
+# the windows are given up and the top cut is kept. About half a second of CPU.
+_EXCERPT_DIFF_BUDGET = 4_000_000
 
 # Chars of path+before+after one TURN's file_changes may carry across every
-# entry EXCEPT its protected one -- the most recent entry whose content differs,
+# entry EXCEPT its protected one -- the most recent entry whose content differs
+# or, truncated, may differ,
 # which ``_apply_turn_snapshot_budget`` keeps whole and never charges here.
 # ``_MAX_SNAPSHOT`` bounds one file; without a turn bound a single turn that
 # rewrites a dozen large files still attaches megabytes to one message, and
@@ -2211,11 +2222,19 @@ def _turn_after_reads(
     before ``_excerpt_pair`` cuts windows: a window can start inside a credential
     (a PEM body below its BEGIN line), and the redactor recognizes one only with
     its delimiters in view. The flush redacts the windows again, which leaves
-    already-redacted text unchanged.
+    already-redacted text unchanged. Whole sides proven equal store two empty
+    sides: a no-change entry, not a truncated one that could take the turn
+    budget's protected slot from a real change.
     """
     reads: dict[str, tuple[_Snapshot | None, tuple[str, str] | None]] = {}
     for key, (after, whole) in _read_turn_afters(changes, turn_had_shell).items():
-        excerpt = _excerpt_pair(redact(whole[0]), redact(whole[1])) if whole else None
+        excerpt = None
+        if whole:
+            excerpt = (
+                ("", "")
+                if whole[0] == whole[1]
+                else _excerpt_pair(redact(whole[0]), redact(whole[1]))
+            )
         reads[key] = (after, excerpt)
     return reads
 
@@ -2295,6 +2314,8 @@ def _flush_file_changes(
             }
             if fc.get("pending_str_replace"):
                 pending_by_path[key] = fc["pending_str_replace"]
+        if fc.get("unverified_write"):
+            deduped[key]["_unverified_write"] = True
         # The accumulator moves a path's first snapshot to the tail on every
         # write, so its position carries last-write recency without extra rows.
         # Assigning on every occurrence also supports directly supplied repeats.
@@ -2337,6 +2358,18 @@ def _flush_file_changes(
             entry["before"], entry["after"] = excerpt
         elif before_truncated or (after is not None and after.truncated):
             entry.update(truncated=True, snapshot_limit_chars=_MAX_SNAPSHOT)
+        if entry.pop("_unverified_write", False):
+            # A failed write with no whole pre-call snapshot: no diff can be
+            # proven either way (_settle_failed_write), so only the path is kept,
+            # with the reason the card states.
+            entry.update(
+                before="",
+                after="",
+                truncated=True,
+                content_omitted=True,
+                omitted_reason="unverified_write",
+            )
+            entry.pop("snapshot_limit_chars", None)
     # Scrub exfil URLs and credentials from path/before/after BEFORE attaching
     # to message meta. _save_slot_to_history runs _redact_meta on persist, but
     # the in-memory slot.messages reaches the dashboard UI via SSE/WS BEFORE
@@ -13712,6 +13745,21 @@ async def _run_chat(
                         result_digest=event.tool_output_digest,
                         result_bytes=event.tool_output_bytes,
                     )
+                    # A write that did not change its file must not show an edit
+                    # (_failed_write_entries). Only an id that still names one
+                    # call may drop: a collapsed id would also match another
+                    # call's successful write. The re-read is offloaded.
+                    if _tool_status in ("failed", "refused") and _tcid_identifies:
+                        _not_written = _failed_write_entries(
+                            slot, _tcid_identity_key(getattr(event, "tool_call_id", None))
+                        )
+                        if _not_written:
+                            _same, _unproven = await asyncio.to_thread(
+                                _settle_failed_write, _not_written
+                            )
+                            _forget_entries(slot, _same)
+                            for _held in _unproven:
+                                _held["unverified_write"] = True
                 # MCP Apps (flag-independent on this side): if gatewayd spooled a
                 # UI payload it injected an opaque marker into the result text.
                 # Load it, push an mcp_app_render event to this slot, and strip
