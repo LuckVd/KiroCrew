@@ -1,7 +1,7 @@
 import { useMemo, useState } from 'react'
 import type React from 'react'
 import { useQuery } from '@tanstack/react-query'
-import { BookOpen, ChevronDown, ChevronRight, Folder, MessageSquarePlus, Paperclip, Plug } from 'lucide-react'
+import { BookOpen, ChevronDown, ChevronRight, Folder, MessageSquarePlus, Paperclip, Plug, Rows2 } from 'lucide-react'
 
 import { api } from '../../api/client'
 import Clickable from '../../components/Clickable'
@@ -42,7 +42,7 @@ import {
 import { findTokenRanges, recollapsePastes, type PasteBlock } from '../../utils/pasteTokens'
 import McpToolsPanel from './McpToolsPanel'
 
-export function ChatHeaderMenu({ activeSlot, agent, onReveal, onRename, onAutoTitle, mode, sidebarOnScreen, omitPopout, triggerLabel, newSessionHere }: {
+export function ChatHeaderMenu({ activeSlot, agent, onReveal, onRename, onAutoTitle, mode, sidebarOnScreen, omitPopout, triggerLabel, newSessionHere, onSplitDown }: {
   activeSlot: string | null; agent?: string; onReveal?: () => void; onRename?: () => void; onAutoTitle?: () => void; mode?: string
   /** Whether the sidebar (and its folder-order banner) is on screen -- see SessionActionsMenu. */
   sidebarOnScreen?: boolean
@@ -57,6 +57,11 @@ export function ChatHeaderMenu({ activeSlot, agent, onReveal, onRename, onAutoTi
    *  session's folder. It lives in this menu, not beside it, because the phone
    *  bar's centre cell holds two controls (AUTOSDE `max-two-buttons-per-row`). */
   newSessionHere?: { label: string; disabled?: boolean; onSelect: () => void }
+  /** Desktop only: start split view with the new pane below this session. It lives
+   *  in this menu, not beside the split view button, because that header group
+   *  already holds three buttons (the `max-two-buttons-per-row` rule). Absent when
+   *  split view is off or the session already belongs to a saved split. */
+  onSplitDown?: () => void
 }) {
   // Controlled open state: lets the colour-swatch row (not a Radix menu item)
   // close the menu after a pick, via the onColorPicked hook passed below.
@@ -126,6 +131,14 @@ export function ChatHeaderMenu({ activeSlot, agent, onReveal, onRename, onAutoTi
           <>
             <DropdownMenuItem data-testid="mobile-new-session-here" disabled={newSessionHere.disabled} onSelect={newSessionHere.onSelect}>
               <MessageSquarePlus size={13} className="shrink-0 text-muted" /> {newSessionHere.label}
+            </DropdownMenuItem>
+            <DropdownMenuSeparator />
+          </>
+        )}
+        {onSplitDown && (
+          <>
+            <DropdownMenuItem data-testid="split-down" onSelect={onSplitDown}>
+              <Rows2 size={13} className="shrink-0 text-muted" /> {i18nT('components.chatPane.split_down')}
             </DropdownMenuItem>
             <DropdownMenuSeparator />
           </>

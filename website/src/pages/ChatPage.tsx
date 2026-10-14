@@ -234,6 +234,7 @@ import ChatDropOverlay from '../components/ChatDropOverlay'
 import SessionGridView from '../components/SessionGridView'
 import SessionTabStrip from '../components/SessionTabStrip'
 import { anchorForSlot, loadLayout, sessionSlots } from '../hooks/splitLayoutStore'
+import type { SplitDir } from '../hooks/useSessionGrid'
 import { mcpAppTabTitle } from '../lib/mcpAppSrcdoc'
 import { countCompletedTurns } from '../lib/completedTurns'
 import { pinIsWithheld } from '../lib/model'
@@ -814,6 +815,7 @@ export default function ChatPage({ mode, embedded, embedMode, popout, noUrlSync 
    *  frame where the sidebar IS the whole page. */
   const navigateToEmbeddedSlot = useCallback((key: string) => navigate(`/embed/chat/${key}`), [navigate])
   const [splitAnchor, setSplitAnchor] = useState<string | null>(null)
+  const [splitSeedDir, setSplitSeedDir] = useState<SplitDir>('right')
   // Temporary sessions ("no memory reads or writes") must never show
   // memory-personalized tips.
   const tipTemporary = useAppSelector(s => s.dashboard.slots.find(sl => sl.key === s.chat.activeSlot)?.memory_mode === 'temporary')
@@ -3142,9 +3144,15 @@ export default function ChatPage({ mode, embedded, embedMode, popout, noUrlSync 
   // chat plus an "in split" badge that re-enters it (β model). `splitAnchor` is the
   // slot whose split we're showing (the one ⌘D'd from, or the badge's target).
   // enterSplit opens Split View for `anchor`: SessionGridView restores anchor's saved
-  // layout if one exists, else seeds [anchor | placeholder]. Closing back down to a
+  // layout if one exists, else seeds [anchor | placeholder] with the placeholder
+  // beside `anchor` ('right', the default) or below it ('down'). Every entry sets
+  // the direction, so one entry never carries into the next. Closing back down to a
   // single session dissolves the layout and collapses to native chat (onCollapse).
-  const enterSplit = useCallback((anchor: string | null) => { setSplitAnchor(anchor); setSplitMode(true) }, [])
+  const enterSplit = useCallback((anchor: string | null, dir: SplitDir = 'right') => {
+    setSplitAnchor(anchor)
+    setSplitSeedDir(dir)
+    setSplitMode(true)
+  }, [])
   // Anchor of the persisted split the active session belongs to (>= 2 live sessions),
   // or null — drives the "in split" badge in single chat. Validated against live
   // slots so a stale layout (a member was deleted) never shows a dead badge.
@@ -5840,6 +5848,7 @@ export default function ChatPage({ mode, embedded, embedMode, popout, noUrlSync 
         {splitMode && splitFeatureEnabled ? (
           <SessionGridView
             seedSlot={splitAnchor ?? activeSlot}
+            seedDir={splitSeedDir}
             openSideChat={connected ? openSideChatForPane : undefined}
             // The single-chat title row is not rendered in split view, so the
             // grid's top-left pane stands in for it: on desktop it clears the
@@ -5946,6 +5955,7 @@ export default function ChatPage({ mode, embedded, embedMode, popout, noUrlSync 
                   mode={effectiveMode}
                   sidebarOnScreen={sidebarOnScreen}
                   newSessionHere={embedMode !== 'chat' && isMobile ? mobileNewSessionItem : undefined}
+                  onSplitDown={!embedMode && splitFeatureEnabled && activeSlot && !(splitAnchorForActive && !activeIsSplitAnchor) ? () => enterSplit(activeSlot, 'down') : undefined}
                 />
                 </div>
                 {/* Shared with every split-view pane header (#9727). The editor
