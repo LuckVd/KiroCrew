@@ -4324,6 +4324,7 @@
       "apply_a_ready_made_set_of_instructions": "Apply a ready-made set of instructions",
       "attach_files": "Attach files",
       "editor_unavailable_standard_input": "The upgraded editor could not load, so the standard input is active. Your draft is unchanged.",
+      "cache_hits": "Cache hits",
       "click_again_to_force_stop": "Click again to force stop",
       "command": "Command",
       "context_usage": "Context usage",

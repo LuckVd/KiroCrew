@@ -6457,6 +6457,7 @@
       "send_waits_for_upload": "Esperando a que termine el adjunto",
       "editor_unavailable_standard_input": "El editor mejorado no se pudo cargar, así que la entrada estándar está activa. Tu borrador no ha cambiado.",
       "branch": "Rama: {{branch}}",
+      "cache_hits": "Aciertos de caché",
       "click_again_to_force_stop": "Haz clic de nuevo para forzar la detención",
       "command": "Comando",
       "context_usage": "Uso del contexto",

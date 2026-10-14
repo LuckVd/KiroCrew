@@ -6457,6 +6457,7 @@
       "send_waits_for_upload": "Aguardando o fim do anexo",
       "editor_unavailable_standard_input": "O editor aprimorado não pôde ser carregado, então a entrada padrão está ativa. Seu rascunho permanece inalterado.",
       "branch": "Branch: {{branch}}",
+      "cache_hits": "Acertos de cache",
       "click_again_to_force_stop": "Clique novamente para forçar a parada",
       "command": "Comando",
       "context_usage": "Uso do contexto",

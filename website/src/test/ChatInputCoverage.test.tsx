@@ -1,10 +1,12 @@
 import React from 'react'
 import { describe, it, expect, vi, beforeEach } from 'vitest'
-import { screen, fireEvent, waitFor, within } from '@testing-library/react'
+import { act, screen, fireEvent, waitFor, within } from '@testing-library/react'
 import { renderWithProviders } from './helpers'
 import ChatInput from '../components/ChatInput'
+import { cacheHitRatio } from '../components/chat-input/cacheHitRatio'
 import { ComposerVoiceSliceOverride } from '../chat-core/composer/Composer'
 import { api } from '../api/client'
+import { crewLogProjectionsKey } from '../hooks/websocket/sessionProjection'
 import { SlotProvider } from '../providers/SlotContext'
 import type { PasteBlock } from '../utils/pasteTokens'
 
@@ -881,5 +883,119 @@ describe('ChatInput context-usage popover', () => {
     resolveFirst({ ok: true, pct: null, global_pct: 70 })
     await waitFor(() => expect(post).toHaveBeenCalledTimes(2), { timeout: 1500 })
     expect(post).toHaveBeenLastCalledWith('test-slot', 71)
+  })
+})
+
+describe('ChatInput context-usage popover: prompt-cache hit ratio', () => {
+  const base = { value: '', onChange: vi.fn(), onSend: vi.fn(), onProjectClick: vi.fn() }
+  const KEY = crewLogProjectionsKey('test-slot')
+
+  /** The session read the Crew Log tab caches under `KEY`: only the `usage` fold, whose
+   *  four token counts are disjoint (a total is their sum). */
+  const usageRead = (tokens?: Record<string, unknown>) => ({
+    folds: { usage: { name: 'usage', seq: 1, revision: 1, value: tokens ? { turns: { tokens_reported: 3 }, tokens } : {} } },
+    resolved: true, writesDrained: true, recording: true, flagValue: '', flagRecognised: true, envFile: '',
+  } as never)
+  const REPORTING = { input: 100, output: 50, cache_read: 750, cache_write: 150 }
+
+  /** Mounts the composer on a slot and opens the popover. The cache entry is seeded
+   *  rather than fetched: the same entry a pushed `session_projection` frame updates,
+   *  and fresh, so no request is owed and the test needs no timer. */
+  function openPopover(read: never) {
+    vi.spyOn(api, 'chatSlotAutocompact').mockResolvedValue({ pct: null, global_pct: 70, min: 5, max: 90 })
+    vi.spyOn(api, 'sessionCrewLogProjections').mockResolvedValue(read)
+    const view = renderWithProviders(
+      <SlotProvider slotId="test-slot">
+        <ChatInput {...base} contextPct={42} contextWindowTokens={200_000} contextUsedTokens={84_000} />
+      </SlotProvider>,
+    )
+    act(() => { view.queryClient.setQueryData(KEY, read) })
+    fireEvent.click(screen.getByLabelText('Context usage'))
+    return view
+  }
+
+  it('shows hits as a share of read, creation and uncached input tokens', () => {
+    openPopover(usageRead(REPORTING))
+    const row = screen.getByTestId('context-cache-hits')
+    expect(within(row).getByText('Cache hits')).toBeInTheDocument()
+    // 750 / (750 + 150 + 100)
+    expect(within(row).getByText('75%')).toBeInTheDocument()
+  })
+
+  it.each([
+    ['a backend that sends no token counts', { input: 0, output: 0, cache_read: 0, cache_write: 0 }],
+    ['input tokens but no cache count, which would read as a 0% miss', { input: 400, output: 90, cache_read: 0, cache_write: 0 }],
+    ['a fold with no token block', undefined],
+  ])('shows no row for %s, and shows it once a later frame reports cache tokens', async (_name, tokens) => {
+    const { queryClient } = openPopover(usageRead(tokens))
+    expect(screen.queryByTestId('context-cache-hits')).toBeNull()
+    // The control: the same popover shows the row when the data reports, so the
+    // absence above is the data's doing and not a row that never renders.
+    act(() => { queryClient.setQueryData(KEY, usageRead(REPORTING)) })
+    // Waits for the observer notification React Query schedules after setQueryData.
+    const row = await screen.findByTestId('context-cache-hits', {}, { timeout: 5000 })
+    expect(within(row).getByText('75%')).toBeInTheDocument()
+  })
+
+  it('reads no usage fold on a peer session, whose slot is not this machine\'s', () => {
+    const read = vi.spyOn(api, 'sessionCrewLogProjections').mockResolvedValue(usageRead(REPORTING))
+    // Spies outlive their test in this suite; count only this test's calls.
+    read.mockClear()
+    vi.spyOn(api, 'chatSlotAutocompact').mockResolvedValue({ pct: null, global_pct: 70, min: 5, max: 90 })
+    const { queryClient } = renderWithProviders(
+      <SlotProvider slotId="test-slot">
+        <ChatInput {...base} sessionOnPeer contextPct={42} contextWindowTokens={200_000} contextUsedTokens={84_000} />
+      </SlotProvider>,
+    )
+    act(() => { queryClient.setQueryData(KEY, usageRead(REPORTING)) })
+    fireEvent.click(screen.getByLabelText('Context usage'))
+    expect(screen.getByText('Context window')).toBeInTheDocument()
+    expect(screen.queryByTestId('context-cache-hits')).toBeNull()
+    expect(read).not.toHaveBeenCalled()
+  })
+
+  it('shows no row and no error when the usage read fails, and keeps the other rows', async () => {
+    vi.spyOn(api, 'chatSlotAutocompact').mockResolvedValue({ pct: null, global_pct: 70, min: 5, max: 90 })
+    const read = vi.spyOn(api, 'sessionCrewLogProjections').mockRejectedValue(new Error('offline'))
+    read.mockClear()
+    const { queryClient } = renderWithProviders(
+      <SlotProvider slotId="test-slot">
+        <ChatInput {...base} contextPct={42} contextWindowTokens={200_000} contextUsedTokens={84_000} />
+      </SlotProvider>,
+    )
+    fireEvent.click(screen.getByLabelText('Context usage'))
+    // The positive signal: the popover asked for the fold and the read failed, so the
+    // absence below is a handled failure and not a read that never happened.
+    await waitFor(() => expect(queryClient.getQueryState(KEY)?.status).toBe('error'), { timeout: 5000 })
+    expect(read).toHaveBeenCalledWith('test-slot')
+    expect(screen.queryByTestId('context-cache-hits')).toBeNull()
+    expect(screen.getByText('Context window')).toBeInTheDocument()
+    expect(screen.getByText('84K')).toBeInTheDocument()
+  })
+})
+
+describe('cacheHitRatio', () => {
+  const fold = (tokens: unknown) => ({ folds: { usage: { value: { tokens } } } })
+
+  it.each([
+    ['not an object', 'text'],
+    ['null', null],
+    ['no folds', {}],
+    ['no usage fold', { folds: {} }],
+    ['an array for tokens', fold([1, 2])],
+    ['string counts', fold({ input: '100', cache_read: '900', cache_write: '0' })],
+    ['negative counts', fold({ input: 100, cache_read: -900, cache_write: -1 })],
+    ['non-finite counts', fold({ input: Infinity, cache_read: NaN, cache_write: -Infinity })],
+    ['counts whose sum overflows', fold({ input: 1e308, cache_read: 1e308, cache_write: 1e308 })],
+  ])('is null for %s', (_name, read) => {
+    expect(cacheHitRatio(read)).toBeNull()
+  })
+
+  it('counts a cache write as the only evidence the backend reports cache', () => {
+    expect(cacheHitRatio(fold({ input: 100, cache_read: 0, cache_write: 100 }))).toBe(0)
+  })
+
+  it('ignores a count that is not a finite number instead of letting it poison the rest', () => {
+    expect(cacheHitRatio(fold({ input: Infinity, cache_read: 50, cache_write: 50 }))).toBe(0.5)
   })
 })
