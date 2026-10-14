@@ -27,7 +27,6 @@
  1 test_acp_death_attribution.py
  5 test_acp_frame_record.py
  5 test_acp_frame_record_provider_safety.py
- 1 test_acp_provider.py
  4 test_acp_refactor_facade.py
 12 test_acp_refactor_runtime_start.py
  8 test_acp_refactor_transport_framing.py
