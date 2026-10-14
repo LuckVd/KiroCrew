@@ -1318,12 +1318,13 @@ class TurnDriver:
         security control), and the cancellation re-raises.
         """
         cause = getattr(self.decider, "last_deny_cause", "") if self.decider is not None else ""
-        if cause == DENY_CAUSE_APPROVAL_TIMEOUT:
-            reason = "the tool-approval prompt went unanswered until its window closed"
-        elif cause == DENY_CAUSE_APPROVAL_UNDELIVERABLE:
-            reason = "the tool-approval prompt could not be delivered to the channel"
-        else:
+        if cause not in (DENY_CAUSE_APPROVAL_TIMEOUT, DENY_CAUSE_APPROVAL_UNDELIVERABLE):
             return
+        reason = (
+            "the tool-approval prompt went unanswered until its window closed"
+            if cause == DENY_CAUSE_APPROVAL_TIMEOUT
+            else "the tool-approval prompt could not be delivered to the channel"
+        )
         await self._steer_host_deny(
             event,
             reason,
