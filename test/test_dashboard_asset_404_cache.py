@@ -21,7 +21,6 @@ These tests drive the real dist routes through the real middleware and a real
 
 from __future__ import annotations
 
-import asyncio
 import errno
 import logging
 import os
@@ -32,6 +31,7 @@ from aiohttp import web
 from aiohttp.test_utils import TestClient, TestServer
 
 from kiro_crew.dashboard import server as srv
+from kiro_crew.testing.wait import async_wait_until
 
 
 def _dist(tmp_path: Path) -> Path:
@@ -227,11 +227,10 @@ async def _settled_warnings(caplog: pytest.LogCaptureFixture) -> list[logging.Lo
     The route probes after the response is on the wire, so the client can see
     the response before the probe has run.
     """
-    for _ in range(500):
-        if not srv._UNOPENABLE_DIST_PROBES:
-            break
-        await asyncio.sleep(0.01)
-    assert not srv._UNOPENABLE_DIST_PROBES
+    await async_wait_until(
+        lambda: not srv._UNOPENABLE_DIST_PROBES,
+        describe=lambda: f"{len(srv._UNOPENABLE_DIST_PROBES)} probe(s) still running",
+    )
     return _unopenable_warnings(caplog)
 
 
@@ -263,7 +262,7 @@ async def test_an_asset_that_cannot_be_opened_logs_once_and_keeps_its_status(
         warnings = await _settled_warnings(caplog)
     assert len(warnings) == 1, [r.getMessage() for r in warnings]
     message = warnings[0].getMessage()
-    assert str(target) in message
+    assert repr(str(target)) in message
     assert f"[Errno {err}]" in message
 
 
@@ -281,7 +280,7 @@ async def test_an_unopenable_precompressed_sibling_is_the_path_logged(
         assert resp.status == 404
         warnings = await _settled_warnings(caplog)
     assert len(warnings) == 1
-    assert str(sibling) in warnings[0].getMessage()
+    assert repr(str(sibling)) in warnings[0].getMessage()
 
 
 @pytest.mark.asyncio
