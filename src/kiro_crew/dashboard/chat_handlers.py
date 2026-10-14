@@ -24,6 +24,7 @@ from aiohttp.client_exceptions import ClientConnectionResetError
 
 from kiro_crew import members as members_mod
 from kiro_crew import model_registry  # noqa: F401
+from kiro_crew._facade_compose import compose as _facade_compose
 from kiro_crew.acp.client import AcpModelUnavailable
 from kiro_crew.agent_discovery import (  # noqa: F401
     cached_project_agent_names,
@@ -48,7 +49,6 @@ from kiro_crew.config.loader import (  # noqa: F401
     published_autocompact_pct,
     resolve_agent_bindings,
 )
-from kiro_crew.dashboard import chat_api as _chat_api
 from kiro_crew.dashboard.channel_slots import channel_slot_name, note_slot_closed  # noqa: F401
 from kiro_crew.dashboard.chat_api import agent_switch as _owner_agent_switch
 from kiro_crew.dashboard.chat_api import followup_card as _owner_followup_card
@@ -5469,7 +5469,7 @@ def _reauthorize_after_await(
 # Every function the owners define runs on this module's globals, so a patch of
 # ``kiro_crew.dashboard.chat_handlers.<name>`` reaches it wherever it lives; see
 # ``kiro_crew.dashboard.chat_api``. Run once, after this body has bound every name.
-_chat_api.compose(
+_facade_compose(
     globals(),
     (
         _owner_agent_switch,

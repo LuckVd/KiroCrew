@@ -36,6 +36,7 @@ from kiro_crew import (  # noqa: F401
     session_directive,
     shutdown_event,
 )
+from kiro_crew._facade_compose import compose as _facade_compose
 from kiro_crew.acp.client import (
     AcpAuthRequired,
     AcpConversationBindingMismatch,
@@ -126,7 +127,6 @@ from kiro_crew.context_blocks import (
     split_blocks,
 )
 from kiro_crew.crew_log import emit as crew_log_emit
-from kiro_crew.dashboard import chat_turn as _chat_turn
 from kiro_crew.dashboard import directive_queue
 from kiro_crew.dashboard.chat_delivery import (  # noqa: F401
     COMMANDS_OFF_META_KEY,
@@ -20861,7 +20861,7 @@ async def _run_chat(
 # Every function the owners define runs on this module's globals, so a patch of
 # ``kiro_crew.dashboard.chat_runner.<name>`` reaches it wherever it now lives; see
 # ``kiro_crew.dashboard.chat_turn``. Run once, after this body has bound every name.
-_chat_turn.compose(
+_facade_compose(
     globals(),
     (
         _owner_acp_recovery,

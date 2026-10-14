@@ -86,7 +86,7 @@ def _env():
     fake_sel = mock.Mock()
     with (
         mock.patch.object(worker_slots, "safety_override", return_value=override),
-        # The approval helpers run on chat_runner's globals (chat_turn.compose).
+        # The approval helpers run on chat_runner's globals (_facade_compose.compose).
         mock.patch.object(chat_runner, "safety_override", return_value=override),
         mock.patch.object(worker_slots, "sel", return_value=fake_sel),
         mock.patch.object(worker_slots.AuditSDK, "record") as record,

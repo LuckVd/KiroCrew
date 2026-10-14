@@ -3,7 +3,7 @@
 ``kiro_crew.dashboard.chat_runner`` keeps its import path, its patch surface, the
 turn entry ``_run_chat`` and every construct a path-keyed repository guard reads in
 that file; the modules of ``kiro_crew.dashboard.chat_turn`` hold these
-responsibilities, one each, and ``chat_turn.compose`` runs every function they
+responsibilities, one each, and ``_facade_compose.compose`` runs every function they
 define on the runner's globals. These tests pin what that composition promises:
 
 * every name the runner bound before the split still resolves on it, and each
@@ -41,6 +41,7 @@ import pytest
 from source_corpus import repo_files_named, repo_root
 
 import kiro_crew.dashboard.chat_runner as cr
+from kiro_crew._facade_compose import compose as facade_compose
 from kiro_crew.dashboard import chat_turn
 from kiro_crew.subprocess_utf8 import UTF8_TEXT
 
@@ -1661,7 +1662,7 @@ def test_compose_rebinds_functions_and_class_members(tmp_path: Path) -> None:
     )
     namespace = {"__name__": "chat_turn_compose_host_probe", "VALUE": "host"}
     namespace["helper"] = owner.helper
-    chat_turn.compose(namespace, (owner,))
+    facade_compose(namespace, (owner,))
 
     assert namespace["helper"]() == "host" and owner.helper is namespace["helper"]
     assert owner.outer()() == "host"
@@ -1675,5 +1676,5 @@ def test_compose_rebinds_functions_and_class_members(tmp_path: Path) -> None:
     assert namespace["helper"]() == "patched"
 
     fresh = {"__name__": "chat_turn_compose_host_probe", "VALUE": "fresh"}
-    chat_turn.compose(fresh, (owner,))
+    facade_compose(fresh, (owner,))
     assert owner.helper() == "fresh"
