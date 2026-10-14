@@ -688,6 +688,80 @@ def dump_superseded(dump_path: Path, dumps_dir: Path | None = None) -> bool:
     return False
 
 
+#: How many of the retained dumps :func:`last_boots` reads as boots.
+_BOOTS_LISTED = 5
+
+#: The tail of the header line :func:`open_dump_file` writes: the UTC stamp the file was opened at.
+_OPENED_RE = re.compile(r"^# \S+ loop-stall crash dump \S+ opened (\d{8}T\d{6}Z)\s*$", re.MULTILINE)
+
+
+def _boot_started(dump_path: Path) -> datetime | None:
+    """When the gateway that opened *dump_path* started, or ``None`` when no time reads.
+
+    The header's ``opened`` stamp is the start: a stalled dump's mtime is the stall, which can be
+    hours later. A header without a usable stamp falls back to the mtime, and a value the
+    platform cannot convert is no time at all.
+    """
+    try:
+        m = _OPENED_RE.search(_read_dump_head(dump_path)[0])
+        if m is not None:
+            return datetime.strptime(m.group(1), "%Y%m%dT%H%M%SZ").replace(tzinfo=timezone.utc)
+    except (OSError, ValueError):
+        pass  # an unreadable header or an impossible date: the mtime is the next-best start
+    try:
+        return datetime.fromtimestamp(dump_path.stat().st_mtime, timezone.utc)
+    except (OSError, OverflowError, ValueError):
+        return None
+
+
+def last_boots(
+    dumps_dir: Path | None = None,
+    *,
+    is_pid_alive: Callable[[int], bool] = pid_exists,
+) -> list[tuple[datetime | None, str]]:
+    """The retained dump files as gateway starts, newest first, as ``(started, state)`` pairs.
+
+    Every gateway start pre-creates a dump file (see :func:`dump_superseded`), so each retained
+    file is one start. The list is what is left AFTER the start-up sweep and the rotation: the
+    sweep (:func:`sweep_stale_dumps`) removes the header-only file of a session that is gone, and
+    rotation drops header-only files before any with stacks. So this is each stall on record (at
+    most ten) plus the newest start, not a complete boot history: a start that never wedged is
+    not listed once a later one has begun. ``state`` is read off the file and, for the newest
+    one, off its writer:
+
+    * ``stalled``: the dump holds thread stacks, the test :func:`dumps_with_stacks` counts;
+    * ``running``: the newest file, no stacks, and the gateway that opened it is alive;
+    * ``not running``: the newest file, no stacks, and that gateway is gone (the owner test the
+      sweep uses, :func:`_owner_alive` with *is_pid_alive*; the next start removes this file);
+    * ``clean so far``: not the newest, no stacks, and a later local boot started without wedging
+      (:func:`dump_superseded`). The sweep removes such a file once its owner is gone, so one
+      shows only while the owner cannot be shown gone;
+    * ``unknown``: the dump cannot be read; the newest file's owner cannot be probed from here
+      (no ``# PID:`` line, another PID domain); or no stacks and no such successor. A missing
+      fact is never read as a clean or a running boot.
+
+    ``started`` is :func:`_boot_started`. Read-only; a file it cannot read costs that row its
+    state, never the call.
+    """
+    dumps = _list_dumps(dumps_dir)
+    boots: list[tuple[datetime | None, str]] = []
+    for path in reversed(dumps[-_BOOTS_LISTED:]):
+        try:
+            if not _is_header_only(path):
+                state = "stalled"
+            elif path == dumps[-1]:
+                alive = _owner_alive(path, is_pid_alive)
+                state = "unknown" if alive is None else ("running" if alive else "not running")
+            elif dump_superseded(path, dumps_dir):
+                state = "clean so far"
+            else:
+                state = "unknown"
+        except OSError:
+            state = "unknown"
+        boots.append((_boot_started(path), state))
+    return boots
+
+
 def claim_dump_notification(dump_path: Path, dumps_dir: Path | None = None) -> bool:
     """Claim the right to notify about *dump_path*, once per dump.
 
