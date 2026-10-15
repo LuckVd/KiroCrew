@@ -401,7 +401,11 @@ def test_the_gpt_reviewer_is_told_the_two_dot_range(world) -> None:
     assert "git diff __MERGE_BASE__..HEAD" in prompt
     assert "__BASE_SHA__...HEAD" not in prompt
     script = str(_step("codex-review.yml", "Write review prompt")["run"])
-    sed = next(line.strip() for line in script.splitlines() if line.strip().startswith("sed -i"))
+    sed = next(line.strip() for line in script.splitlines() if line.strip().startswith("sed -i "))
+    # The step runs on ubuntu runners with GNU sed. BSD sed (macOS) reads the
+    # word after a bare `-i` as a backup suffix, so the test passes the suffix
+    # attached (`-i.bak`), a form both seds accept, and keeps the step's script.
+    sed = "sed -i.bak " + sed[len("sed -i ") :]
     o, _, _ = world
     for text in ("git diff __MERGE_BASE__..HEAD", "git diff __BASE_SHA__...HEAD"):
         f = o.tmp / "codex-prompt.md"
@@ -415,6 +419,7 @@ def test_the_gpt_reviewer_is_told_the_two_dot_range(world) -> None:
             encoding="utf-8",
         )
         assert f.read_text(encoding="utf-8") == f"git diff {'m' * 40}..HEAD\n", (text, res.stderr)
+        f.with_name(f.name + ".bak").unlink()
 
 
 _COMMITTED_SOURCE = '. "$GITHUB_WORKSPACE/.github/scripts/pr-committed-evidence.sh"'
