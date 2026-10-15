@@ -246,10 +246,9 @@ class TestHandlerExceptionBoundary:
         assert "secretary" in msg and "GET /boom" in msg
         assert "RuntimeError: Slack MCP tool failed: list_my_channels" in msg
         assert warnings[0].exc_info is None
-        assert [r["outcome"] for r in sel_rows] == ["ok", "error"]
-        assert sel_rows[1]["operation"] == "app_route_handler"
-        assert sel_rows[1]["error"] == "RuntimeError"
-        assert sel_rows[1]["resources"] == "GET /boom"
+        # Only the dispatch row: the failure's evidence is the WARNING above,
+        # and sel_audit_middleware already records the 502 for mutating verbs.
+        assert [r["outcome"] for r in sel_rows] == ["ok"]
 
     @pytest.mark.asyncio
     async def test_http_exception_propagates_unchanged(
@@ -259,9 +258,11 @@ class TestHandlerExceptionBoundary:
             raise web.HTTPForbidden(text="nope")
 
         registry = _registry_with(handler)
-        with caplog.at_level(logging.WARNING, logger="kiro_crew.apps.route_registry"):
-            with pytest.raises(web.HTTPForbidden):
-                await registry.dispatch(_request())
+        with (
+            caplog.at_level(logging.WARNING, logger="kiro_crew.apps.route_registry"),
+            pytest.raises(web.HTTPForbidden),
+        ):
+            await registry.dispatch(_request())
 
         assert caplog.records == []
         assert [r["outcome"] for r in sel_rows] == ["ok"]

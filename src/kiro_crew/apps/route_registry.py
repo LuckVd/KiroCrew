@@ -233,7 +233,7 @@ class RouteRegistry:
         An app handler that raises is the app's bug, but without this boundary
         aiohttp writes a full ``Error handling request`` traceback per request and
         the dashboard gets an opaque 500. Here it becomes one WARNING naming the
-        app and route, a SEL ``error`` row, and a 502 JSON body. ``HTTPException``
+        app and route and a 502 JSON body. ``HTTPException``
         is a handler's deliberate response and ``CancelledError`` is a client
         disconnect or shutdown: both propagate unchanged.
         """
@@ -251,13 +251,6 @@ class RouteRegistry:
                 exc,
             )
             logger.debug("App %s route %s traceback", app_name, route_name, exc_info=True)
-            sel().log_api_access(
-                caller=f"app:{app_name}",
-                operation="app_route_handler",
-                outcome="error",
-                resources=f"{request.method} /{request.match_info.get('path', '')}",
-                error=type(exc).__name__,
-            )
             return web.json_response(
                 {
                     "error": "app route failed",
