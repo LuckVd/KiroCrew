@@ -138,6 +138,7 @@ from kiro_crew.instances.registry import _ID_RE as _INSTANCE_ID_RE
 from kiro_crew.instances.registry import (
     _NO_FORWARDER_PID,
     _UNALLOCATED_PORT,
+    CONNECTION_METHODS,
     MAX_VIA_HOPS,
     SSM_TRANSPORT_METHODS,
     Instance,
@@ -178,6 +179,7 @@ from kiro_crew.instances.token_mint import (
 from kiro_crew.instances.validation import (
     SshValidationError,
     SsmValidationError,
+    UnsupportedConnectionMethodError,
     split_ecs_target,
     validate_aws_profile,
     validate_aws_region,
@@ -1981,6 +1983,18 @@ class _TransportParams:
         return f"http://{_LOOPBACK}:{local_port}{FARGATE_TURN_PATH}"
 
 
+def _transport_method(inst: Instance) -> str:
+    """The transport *inst* names, normalised; an absent or blank method is ``ssh``."""
+    return (inst.connection_method or "").strip().lower() or "ssh"
+
+
+def _unsupported_method_message(inst: Instance) -> str:
+    return (
+        f"crew {inst.id!r} uses connection method {inst.connection_method!r}, which this "
+        f"version of Kiro Crew cannot connect over (supported: {', '.join(CONNECTION_METHODS)})"
+    )
+
+
 class SshTunnelManager:
     """Manages per-instance tunnels (SSH or SSM) keyed by instance id.
 
@@ -2723,7 +2737,9 @@ class SshTunnelManager:
         """
         if inst.via_instance_id:
             return self._resolve_chained_transport(inst, parent)
-        method = (inst.connection_method or "ssh").strip().lower()
+        method = _transport_method(inst)
+        if method not in CONNECTION_METHODS:
+            raise UnsupportedConnectionMethodError(_unsupported_method_message(inst))
         if method == "fargate":
             target = validate_ssm_target(inst.ssm_target)
             # validate_ssm_target admits every SSM target shape; this method only
@@ -3804,6 +3820,10 @@ class SshTunnelManager:
             # Injection-safe validation immediately before building command lines.
             try:
                 params = self._resolve_transport(inst, await self._with_parent(inst))
+            except UnsupportedConnectionMethodError:
+                # Raised, like a disabled crew, so the route answers with its typed
+                # code; nothing has been spawned for this crew.
+                raise
             except (SshValidationError, SsmValidationError) as e:
                 return self._error_status(inst, f"invalid {inst.connection_method} settings: {e}")
 
@@ -4986,7 +5006,7 @@ class SshTunnelManager:
             return None
         tunnel = self._tunnels.get(instance_id)
         local_port = (tunnel.status.local_port if tunnel else 0) or inst.local_port
-        method = (inst.connection_method or "ssh").strip().lower()
+        method = _transport_method(inst)
         if inst.via_instance_id:
             # A chained crew is probed along the hop THIS gateway opened — the
             # parent's host and the parent's loopback port — because that is the
@@ -5029,6 +5049,14 @@ class SshTunnelManager:
                 aws_profile=inst.aws_profile,
                 aws_region=inst.aws_region,
                 ssm_run_as=inst.ssm_run_as,
+            )
+        elif method not in CONNECTION_METHODS:
+            # Nothing to probe: this build has no transport for the method, and
+            # the SSH ladder would dial whatever ssh_host the record holds.
+            result = DiagnosisResult(
+                code=UnsupportedConnectionMethodError.code,
+                reason=_unsupported_method_message(inst),
+                probes=[],
             )
         else:
             result = await diagnose_instance(

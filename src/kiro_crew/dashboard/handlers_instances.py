@@ -77,6 +77,7 @@ from kiro_crew.instances.registry import (
     validate_ttl,
 )
 from kiro_crew.instances.ssh_tunnel_manager import ProxyRequestError, TunnelState
+from kiro_crew.instances.validation import UnsupportedConnectionMethodError
 from kiro_crew.instances.warm_set import resolve_warm_set_cap
 from kiro_crew.loop_lock import LoopBoundLock
 from kiro_crew.security import redact
@@ -987,6 +988,17 @@ async def api_instances_connect(request: web.Request) -> web.Response:
     except KeyError:
         _audit("connect", "denied", request_id=instance_id, error="not found")
         return web.json_response({"error": "not found", "code": "instance_not_found"}, status=404)
+    except UnsupportedConnectionMethodError as e:
+        _audit("connect", "denied", request_id=instance_id, error="unsupported connection method")
+        return web.json_response(
+            {
+                "instance_id": instance_id,
+                "state": "disconnected",
+                "error": str(e),
+                "code": UnsupportedConnectionMethodError.code,
+            },
+            status=409,
+        )
     except InstanceDisabledError:
         _audit("connect", "denied", request_id=instance_id, error="disabled")
         return web.json_response(

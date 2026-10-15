@@ -1627,6 +1627,20 @@ port, no sshd and no distributed key — reachability is an IAM decision
 Records are back-compatible: an `instances.json` written before this feature has
 no `connection_method` and loads as `"ssh"`.
 
+**A method this build does not know is refused, never dialled as SSH.** Records
+load without full validation, so a hand-edited value or one written by a newer
+build (`outbound`) reaches the gateway. `SshTunnelManager._resolve_transport`
+normalises the method (trimmed, lower-cased; absent or blank means `ssh`) and
+raises `validation.UnsupportedConnectionMethodError` for anything outside
+`CONNECTION_METHODS`. It subclasses `SshValidationError`, so every caller that
+already catches transport-validation errors (self-heal, token refresh, the
+remote verbs, the lent hop) refuses the crew. `connect()` re-raises it instead of
+storing an error status, like `InstanceDisabledError`, and spawns nothing;
+`POST /api/instances/{id}/connect` answers `409` / `code:
+connection_method_unsupported`. `diagnose()` returns that same code as its
+verdict and runs no probe, since the SSH ladder would dial whatever `ssh_host`
+the record holds.
+
 SSM-only registry fields: `ssm_target` (an EC2 `i-…` or SSM managed-instance
 `mi-…` id), plus optional `aws_profile`, `aws_region` and `ssm_run_as`. Only the
 profile **name** is persisted — never a credential; the AWS CLI resolves
