@@ -471,9 +471,11 @@ async def read_bounded_json(
     415 and the declared-oversize 413 return BEFORE a single byte is read, a
     caller that does not return every error this helper hands back must pass
     ``require_json_content_type=False``, or it inherits an unread stream that
-    nothing bounds. Every other caller in the tree returns the error
-    unconditionally (``chat_pins`` rewrites a 400's code and then returns it),
-    so the Teams route is the only opt-out.
+    nothing bounds. Every other caller in the tree answers every error it gets
+    (``chat_pins``, ``session_storage`` and ``artifacts`` rewrite a 400 into
+    their own shape; ``hooks`` defaults an ``invalid_json`` 400, which comes
+    back only after the whole body was read), so the Teams route is the only
+    opt-out.
 
     Which also means: this gate is a SECOND barrier, not the first one. Every
     other unsafe-method ``/api/`` route is already refused cross-origin by
@@ -483,19 +485,26 @@ async def read_bounded_json(
     to be exploitable. Extending the refusal to the Teams route is a separate
     decision about an external contract, not part of this one.
 
-    The other self-authenticating webhook, ``POST /api/hooks/agent``, reads
-    through ``handlers/hooks.py::_json_object`` and is untouched by this.
+    The other self-authenticating webhook, ``POST /api/hooks/agent``, reads raw
+    bytes through ``handlers/hooks.py::_read_hook_body`` (it must HMAC the exact
+    bytes) and is not a caller, so this gate does not reach it.
 
-    NOT yet the dashboard's only such guard. Four siblings survive and diverge:
-    ``handlers_channel._json_object`` (same ``invalid_json``/``body_not_object``
-    codes, but raises ``HTTPBadRequest`` instead of returning the response),
-    ``handlers/hooks.py::_json_object`` (``default_empty=True`` collapses a
-    MALFORMED body to defaults), ``handlers/session_storage.py::_json_body``
-    (deliberately different: an empty body is legitimate there, and it
-    documents why), and ``handlers/artifacts.py::_read_json_body`` (raises
-    ``ArtifactValidationError``, carries its own cap). Folding or narrowing each
-    is still outstanding -- claiming one owner before that is done would be a
-    claim the tree does not support.
+    The four module-local JSON body guards read through this helper and keep
+    only their module's answer shape:
+    ``handlers_channel._json_object`` (raises, via
+    :func:`bounded_json_error_as_exception`), ``handlers/hooks.py::_json_object``
+    (``default_empty`` defaults an absent or ``invalid_json`` body, never a 415
+    or 413), ``handlers/session_storage.py::_json_body`` (absent is ``{}``,
+    malformed is its own ``invalid_body`` 400), and
+    ``handlers/artifacts.py::_read_json_body`` (``ArtifactValidationError`` for
+    the 400s, the 415 raised). So a handler that picks any of them gets the
+    media-type gate.
+
+    What this does NOT cover: handlers that still call ``await request.json()``
+    directly, and the builtin apps' own body helpers. Those parse whatever media
+    type is declared, behind ``csrf_middleware``'s Origin barrier only. A
+    multipart or raw-bytes route (uploads, the session import) is correctly not
+    a caller.
 
     The cap is enforced BEFORE decoding: a Content-Length precheck rejects an
     oversized declared body, and the stream is then read incrementally so a
@@ -577,6 +586,39 @@ async def read_bounded_json(
             {"error": "body must be a JSON object", "code": "body_not_object"}, status=400
         )
     return body, None
+
+
+def bounded_json_error_code(error: web.Response) -> str | None:
+    """The ``code`` of a :func:`read_bounded_json` refusal *error*.
+
+    For the callers that answer one refusal their own way (a defaulted
+    ``invalid_json``, a module-specific message) while passing the rest through.
+    Telling ``invalid_json`` from ``body_not_object`` needs the code: both are 400.
+    """
+    try:
+        code = json.loads(error.text or "").get("code")
+    except (ValueError, AttributeError):
+        return None
+    return code if isinstance(code, str) else None
+
+
+def bounded_json_error_as_exception(error: web.Response) -> web.HTTPException:
+    """The :func:`read_bounded_json` refusal *error*, as an exception to raise.
+
+    For the callers whose contract is to RAISE rather than return a response
+    (``handlers_channel._json_object``, the 415 from
+    ``handlers/artifacts.py::_read_json_body``). aiohttp answers a raised
+    ``HTTPException`` with its own status and body, so the client sees the same
+    status, ``code`` and JSON the returning callers send. Keeping the mapping
+    here means a raising caller cannot drop the 415 by translating it into the
+    wrong status.
+    """
+    kwargs: dict[str, Any] = {"text": error.text, "content_type": "application/json"}
+    if error.status == 415:
+        return web.HTTPUnsupportedMediaType(**kwargs)
+    if error.status == 413:
+        return web.HTTPRequestEntityTooLarge(max_size=0, actual_size=0, **kwargs)
+    return web.HTTPBadRequest(**kwargs)
 
 
 # Chunk size for draining an OUTBOUND HTTP response to EOF. Matches the

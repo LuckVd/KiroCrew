@@ -16,6 +16,7 @@ from types import SimpleNamespace
 from typing import Any
 
 import pytest
+from body_stream_helpers import JsonBodyRequest
 
 from kiro_crew.artifact_store import dashboard_package as dp
 
@@ -597,13 +598,13 @@ async def _save_onto_a_deduped_record(
     monkeypatch.setattr(handler, "_promote_verdict", _verdict)
     monkeypatch.setattr(handler, "_authoritative_promote_content", _promoted)
 
-    class _Request:
+    class _Request(JsonBodyRequest):
         headers = {"X-Internal-Secret": "s", "X-Session-Key": "chat-9-17911"}
         match_info: dict[str, str] = {}
         query: dict[str, str] = {}
         app = {"state": SimpleNamespace()}
 
-        async def read(self) -> bytes:
+        def body_bytes(self) -> bytes:
             return json.dumps(
                 {"name": "page", "content": submitted, "source_path": "/tmp/copied.json"}
             ).encode()
@@ -672,13 +673,13 @@ async def _create_under_a_fresh_slug(
     if body_content is not None:
         sent["content"] = body_content
 
-    class _Request:
+    class _Request(JsonBodyRequest):
         headers = {"X-Internal-Secret": "s", "X-Session-Key": "chat-9-17911"}
         match_info: dict[str, str] = {}
         query: dict[str, str] = {}
         app = {"state": SimpleNamespace()}
 
-        async def read(self) -> bytes:
+        def body_bytes(self) -> bytes:
             return json.dumps(sent).encode()
 
         def get(self, key: str, default: Any = None) -> Any:
@@ -925,12 +926,12 @@ async def _update_against_a_store(
     if gate is not None:
         monkeypatch.setattr(handler, "_package_write_refusal", gate)
 
-    class _Request:
+    class _Request(JsonBodyRequest):
         headers = {"X-Internal-Secret": "s", "X-Session-Key": "chat-9-17911"}
         match_info = {"slug": "page"}
         app = {"state": SimpleNamespace()}
 
-        async def read(self) -> bytes:
+        def body_bytes(self) -> bytes:
             return json.dumps({"content": submitted}).encode()
 
         def get(self, key: str, default: Any = None) -> Any:
@@ -1002,12 +1003,12 @@ async def _update_through_the_route(
     if submitted_kind is not None:
         body["kind"] = submitted_kind
 
-    class _Request:
+    class _Request(JsonBodyRequest):
         headers = {"X-Internal-Secret": "s", "X-Session-Key": "chat-1-1790"}
         match_info = {"slug": "page"}
         app = {"state": SimpleNamespace()}
 
-        async def read(self) -> bytes:
+        def body_bytes(self) -> bytes:
             return json.dumps(body).encode()
 
         def get(self, key: str, default: Any = None) -> Any:
@@ -1054,12 +1055,12 @@ async def _update_body_through_the_route(
     monkeypatch.setattr(handler, "_non_owner_refusal", _allowed)
     monkeypatch.setattr(handler, "_package_write_refusal", lambda *_a: "")
 
-    class _Request:
+    class _Request(JsonBodyRequest):
         headers = {"X-Internal-Secret": "s", "X-Session-Key": "chat-1-1790"}
         match_info = {"slug": "page"}
         app = {"state": SimpleNamespace()}
 
-        async def read(self) -> bytes:
+        def body_bytes(self) -> bytes:
             return json.dumps(body).encode()
 
         def get(self, key: str, default: Any = None) -> Any:

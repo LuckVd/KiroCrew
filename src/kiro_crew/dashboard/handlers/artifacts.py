@@ -27,7 +27,6 @@ import base64
 import copy
 import functools
 import getpass
-import json
 import logging
 import os
 import re
@@ -75,6 +74,9 @@ from kiro_crew.dashboard.chat_folders import (
 )
 from kiro_crew.dashboard.handlers._shared import (
     _is_restricted_session,
+    bounded_json_error_as_exception,
+    bounded_json_error_code,
+    read_bounded_json,
     require_owner_dashboard_request,
 )
 from kiro_crew.dashboard.state import _normalize_slot_key
@@ -190,19 +192,31 @@ def _notify_artifact_update(state: Any, slug: str, version: int, *, deleted: boo
 
 
 async def _read_json_body(request: web.Request) -> dict[str, Any]:
-    """Read a JSON body, capped at ``_MAX_BODY_BYTES``."""
-    raw = await request.read()
-    if len(raw) > _MAX_BODY_BYTES:
+    """Read a JSON object body, capped at ``_MAX_BODY_BYTES``; absent is ``{}``.
+
+    Reads through :func:`read_bounded_json`, so the cap bounds what is
+    ALLOCATED, not only what is accepted: a declared oversize is refused before
+    a byte is read, and a chunked body stops streaming one chunk past the cap
+    instead of being buffered whole first.
+
+    A body that is present but does not declare a JSON content type is refused
+    415 ``unsupported_media_type`` before it is read. That refusal is RAISED as
+    an ``HTTPException``, not as ``ArtifactValidationError``, because every
+    caller turns the latter into a 400 and a 415 must reach the client as a 415.
+    The oversize and malformed answers keep this module's existing
+    ``ArtifactValidationError`` path (a 400 with the message), unchanged.
+    """
+    body, error = await read_bounded_json(request, max_bytes=_MAX_BODY_BYTES, allow_absent=True)
+    if error is None:
+        assert body is not None
+        return body
+    if error.status == 415:
+        raise bounded_json_error_as_exception(error)
+    if error.status == 413:
         raise ArtifactValidationError(f"request body exceeds {_MAX_BODY_BYTES} bytes")
-    if not raw:
-        return {}
-    try:
-        body = json.loads(raw)
-    except json.JSONDecodeError as exc:
-        raise ArtifactValidationError(f"invalid JSON: {exc}") from exc
-    if not isinstance(body, dict):
+    if bounded_json_error_code(error) == "body_not_object":
         raise ArtifactValidationError("request body must be a JSON object")
-    return body
+    raise ArtifactValidationError("invalid JSON")
 
 
 def _session_key(request: web.Request) -> str:

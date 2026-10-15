@@ -16,6 +16,7 @@ import dataclasses
 import os
 
 import pytest
+from body_stream_helpers import attach_json_body
 
 from kiro_crew import sandbox
 from kiro_crew.platform import context as ctx_mod
@@ -2344,6 +2345,6 @@ class TestPublishGovernanceGate:
         req.query = {}
         # Body omits "provider" — the pre-fix code would default to "provider-a"
         # (allowed) and permit the push to the provider-b-published artifact.
-        req.read = AsyncMock(return_value=json.dumps({"visibility": "PRIVATE"}).encode())
+        attach_json_body(req, json.dumps({"visibility": "PRIVATE"}).encode())
         resp = await art.api_artifact_publish(req)
         assert resp.status == 403

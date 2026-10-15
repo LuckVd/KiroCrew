@@ -12,11 +12,12 @@ import json
 import threading
 from pathlib import Path
 from typing import Any
-from unittest.mock import AsyncMock, MagicMock
+from unittest.mock import MagicMock
 
 import pytest
 from aiohttp import web
 from aiohttp.test_utils import TestClient, TestServer
+from body_stream_helpers import attach_json_body
 
 from conftest import cap_project_root_walk
 from kiro_crew import artifacts as art_mod
@@ -71,11 +72,11 @@ def _request(
     req.query = query or {}
     if isinstance(body, dict):
         encoded = json.dumps(body).encode()
-        req.read = AsyncMock(return_value=encoded)
+        attach_json_body(req, encoded)
     elif isinstance(body, bytes):
-        req.read = AsyncMock(return_value=body)
+        attach_json_body(req, body)
     else:
-        req.read = AsyncMock(return_value=b"")
+        attach_json_body(req, b"")
     # Attach the restricted-session flag via a stub on the request app.
     # Provide a non-None state so handlers don't short-circuit on the
     # state-is-None deny-by-default guard.
@@ -1295,6 +1296,79 @@ class TestDetail:
         isolated_store.create(name="x", content="<x/>", slug="x")
         await api_artifact_detail(_request(match={"slug": "x"}))
         sel_stub.log_tool_invocation.assert_not_called()
+
+
+class TestJsonBodyGate:
+    """``_read_json_body`` reads through ``read_bounded_json``.
+
+    A present body that does not declare JSON is refused 415 before it is read,
+    on every route the helper serves; and the byte cap bounds what is buffered,
+    not only what is accepted.
+    """
+
+    @pytest.mark.asyncio
+    @pytest.mark.parametrize("content_type", ["text/plain", "application/octet-stream"])
+    async def test_create_refuses_a_non_json_media_type_415(
+        self, isolated_store, patch_restricted, content_type
+    ) -> None:
+        req = _request(body={"name": "Hello", "content": "<p>hi</p>"})
+        req.content_type = content_type
+        with pytest.raises(web.HTTPUnsupportedMediaType) as exc:
+            await api_artifacts_create(req)
+        assert exc.value.status == 415
+        assert json.loads(exc.value.text)["code"] == "unsupported_media_type"
+        with pytest.raises(art_mod.ArtifactNotFoundError):
+            isolated_store.get("hello")
+
+    @pytest.mark.asyncio
+    async def test_update_refuses_a_non_json_media_type_415(
+        self, isolated_store, patch_restricted
+    ) -> None:
+        isolated_store.create(name="page", content="<p>ok</p>", slug="page")
+        req = _request(body={"name": "Renamed"}, match={"slug": "page"})
+        req.content_type = "text/plain"
+        with pytest.raises(web.HTTPUnsupportedMediaType):
+            await api_artifact_update(req)
+        assert isolated_store.get("page").name == "page"
+
+    @pytest.mark.asyncio
+    async def test_an_oversize_chunked_body_stops_streaming_at_the_cap(
+        self, isolated_store, patch_restricted, monkeypatch
+    ) -> None:
+        from kiro_crew.dashboard.handlers import artifacts as art_handlers
+
+        cap = 1024
+        monkeypatch.setattr(art_handlers, "_MAX_BODY_BYTES", cap)
+        raw = json.dumps({"name": "big", "content": "x" * (cap * 50)}).encode()
+        req = _request(body=None)
+        attach_json_body(req, raw)
+        req.content_length = None  # chunked: no declared length to refuse on
+        served: list[int] = []
+        drain = req.content.iter_chunked
+
+        async def _counting(n: int):
+            async for chunk in drain(n):
+                served.append(len(chunk))
+                yield chunk
+
+        req.content.iter_chunked = _counting
+        resp = await api_artifacts_create(req)
+        assert resp.status == 400
+        assert "exceeds" in _json_body(resp)["error"]
+        # Stopped one chunk past the cap rather than draining the whole body.
+        assert sum(served) <= cap + 8192
+        assert sum(served) < len(raw)
+        with pytest.raises(art_mod.ArtifactNotFoundError):
+            isolated_store.get("big")
+
+    @pytest.mark.asyncio
+    async def test_an_absent_body_is_still_an_empty_object(
+        self, isolated_store, patch_restricted
+    ) -> None:
+        resp = await api_artifacts_create(_request(body=None))
+        # {} reaches the route's own validation, not a body refusal.
+        assert resp.status == 400
+        assert "JSON" not in _json_body(resp)["error"]
 
 
 class TestUpdate:
