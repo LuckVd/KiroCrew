@@ -562,6 +562,34 @@ describe('registry install trust gate', () => {
     expect(text).not.toContain(`${K}.on_cancel LaunchDarkly`)
   })
 
+  it('says the UPDATE consent state is an update, in its outcome line and its confirm label', async () => {
+    // The title and the scope line read the same on every path, so the outcome
+    // line and the confirm button are what tell the reader this is an update.
+    await openUpdateConsent()
+
+    const dialog = within(screen.getByRole('dialog'))
+    expect(screen.getByRole('dialog').textContent).toContain(`${K}.update_outcome LaunchDarkly`)
+    expect(dialog.getByRole('button', { name: `${K}.confirm_update` })).toBeTruthy()
+    expect(dialog.queryByRole('button', { name: `${K}.confirm_install` })).toBeNull()
+    expect(dialog.queryByRole('button', { name: `${K}.confirm` })).toBeNull()
+  })
+
+  it('names the update while the UPDATE path is working, and drops its outcome line after a failure', async () => {
+    await openUpdateConsent()
+    let finishGrant: () => void = () => {}
+    trustApp.mockImplementation(() => new Promise<void>((resolve) => { finishGrant = resolve }))
+    installFromRegistryStream.mockResolvedValue({ ok: false, error: 'clone failed' })
+
+    fireEvent.click(confirmBtn())
+
+    await waitFor(() => expect(within(screen.getByRole('dialog'))
+      .getByRole('button', { name: `${K}.working_update` })).toBeTruthy())
+    finishGrant()
+    await waitFor(() => expect(within(screen.getByRole('dialog')).getByRole('alert').textContent)
+      .toContain(`${K}.update_failed LaunchDarkly`))
+    expect(screen.getByRole('dialog').textContent).not.toContain(`${K}.update_outcome`)
+  })
+
   it('keeps the enable copy out of a failed update whose grant did not stay (#19991)', async () => {
     // The enable path's headline says trusting "is what turns it on"; on an
     // update the UPDATE is what failed, so the headline and the exit line are the

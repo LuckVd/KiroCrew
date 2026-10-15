@@ -596,17 +596,22 @@ export default function TrustAppModal({
               {i18nT('components.appstore.trustAppModal.cancel')}
             </Btn>
             <Btn primary onClick={onConfirm} disabled={pending}>
-              {/* The install path only installs: the app lands switched off, so
-                  its labels name the trust alone, never "and enable". */}
+              {/* Each path names what confirming runs. A first install only
+                  installs (the app lands switched off), so its labels name the
+                  trust alone, never "and enable"; an Update names the update. */}
               {pending
-                ? <><Loader2 size={14} className="animate-spin" /> {app?.retryInstalls
-                    ? i18nT('components.appstore.trustAppModal.working_install')
-                    : i18nT('components.appstore.trustAppModal.working')}</>
+                ? <><Loader2 size={14} className="animate-spin" /> {path === 'update'
+                    ? i18nT('components.appstore.trustAppModal.working_update')
+                    : path === 'install'
+                      ? i18nT('components.appstore.trustAppModal.working_install')
+                      : i18nT('components.appstore.trustAppModal.working')}</>
                 : failed
                   ? <><ShieldAlert size={14} /> {i18nT('components.appstore.trustAppModal.confirm_after_failure')}</>
-                  : <><ShieldAlert size={14} /> {app?.retryInstalls
-                      ? i18nT('components.appstore.trustAppModal.confirm_install')
-                      : i18nT('components.appstore.trustAppModal.confirm')}</>}
+                  : <><ShieldAlert size={14} /> {path === 'update'
+                      ? i18nT('components.appstore.trustAppModal.confirm_update')
+                      : path === 'install'
+                        ? i18nT('components.appstore.trustAppModal.confirm_install')
+                        : i18nT('components.appstore.trustAppModal.confirm')}</>}
             </Btn>
           </>
         )
@@ -705,6 +710,14 @@ export default function TrustAppModal({
           {freshInstall && !failed && (
             <p className="text-text leading-relaxed">
               {i18nT('components.appstore.trustAppModal.install_outcome', { app: name })}
+            </p>
+          )}
+          {/* The Update path's own outcome line, so the consent state says this
+              is an update and not a first install: the title and the scope line
+              read the same on every path. */}
+          {path === 'update' && !failed && (
+            <p className="text-text leading-relaxed">
+              {i18nT('components.appstore.trustAppModal.update_outcome', { app: name })}
             </p>
           )}
           <p className="text-muted leading-relaxed">{copy.exit}</p>

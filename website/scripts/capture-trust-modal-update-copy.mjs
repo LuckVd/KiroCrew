@@ -1,12 +1,14 @@
 /**
- * Screenshot harness for the trust dialog's UPDATE path (#19991).
+ * Screenshot harness for the trust dialog's UPDATE path.
  *
  * An Update of an already-installed app re-runs the registry install, and when
- * the execution policy refuses it the same consent modal opens. That path must
- * carry its own Cancel line and failure headlines: the enable path's say
- * trusting "is what turns it on" and that the app "stays in place, switched
- * off" (the app being updated may be on), and the install path's say nothing
- * is installed (it is).
+ * the execution policy refuses it the same consent modal opens. That path
+ * carries its own outcome line, confirm label, Cancel line and failure
+ * headlines: the enable path's say trusting "is what turns it on" and that the
+ * app "stays in place, switched off" (the app being updated may be on), and
+ * the install path's say nothing is installed (it is). The failure headlines
+ * name the retry without calling it trusting again, and the not-saved one
+ * points at the agent hand-off rather than at logs it does not locate.
  *
  * Runs the REAL built SPA behind the shared static server and answers every
  * /api/** call from fixtures, the SSE install stream included, so no gateway
@@ -17,9 +19,11 @@
  *   03 trusted    → the grant landed, the update failed, the app is still there
  *                   so the grant stands (`update_failed`)
  *
- * BEFORE (`before` prefix, a dist built at the PR's base commit) asserts each
- * frame still shows the ENABLE path's copy on the Update path -- the defect.
- * AFTER asserts the update copy and the absence of both other paths' copy.
+ * BEFORE (`before` prefix, a dist built without the update outcome line)
+ * asserts the consent state reads like a first install's: no outcome line and
+ * the install confirm label, with the failure headlines' re-confirm and logs
+ * clauses. AFTER asserts the update copy and the absence of both other paths'
+ * copy.
  * Each assertion runs before its frame is taken, so a screenshot can never show
  * a state the run did not verify.
  *
@@ -57,6 +61,13 @@ const UPDATE_ON_CANCEL_GRANTED = `Cancel keeps \u201c${DISPLAY}\u201d trusted, a
 const UPDATE_GENERIC = `\u201c${DISPLAY}\u201d could not be updated, and trust was not saved.`
 const UPDATE_GRANTED = `\u201c${DISPLAY}\u201d is now trusted, but it could not be updated.`
 const RETRY_BUTTON = 'Trust and try again'
+const UPDATE_OUTCOME = `Trusting \u201c${DISPLAY}\u201d updates it: the new version replaces the one you have.`
+const CONFIRM_UPDATE = 'Trust this app and update'
+const CONFIRM_INSTALL = 'Trust this app'
+const RECONFIRM = 're-confirms the trust you already gave'
+const RETRY_CLAUSE = 'Choose Trust and try again to retry with the trust you already gave'
+const LOGS_CLAUSE = "'s logs"
+const ASK_CLAUSE = 'or choose Ask the agent to find out why.'
 
 const INSTALLED_APP = {
   name: APP, displayName: DISPLAY, version: '3.2.6', enabled: true,
@@ -146,7 +157,8 @@ async function openUpdateModal(context, base, scenario) {
 }
 
 async function failThroughTheModal(page, modal) {
-  await modal.getByRole('button', { name: 'Trust this app', exact: true }).click()
+  const confirm = PREFIX === 'before' ? CONFIRM_INSTALL : CONFIRM_UPDATE
+  await modal.getByRole('button', { name: confirm, exact: true }).click()
   await modal.getByRole('alert').waitFor({ timeout: 15000 })
   await modal.getByRole('button', { name: RETRY_BUTTON, exact: true }).waitFor({ timeout: 15000 })
   await page.waitForTimeout(600)
@@ -166,10 +178,13 @@ async function captureConsent(context, base) {
   const body = await modal.innerText()
   assertNoInstallCopy(body)
   if (PREFIX === 'before') {
-    if (!body.includes(ENABLE_ON_CANCEL)) fail('BEFORE: the update path borrows the enable Cancel line', body)
+    if (body.includes(UPDATE_OUTCOME)) fail('BEFORE: the consent state has no update outcome line', body)
+    if (!await modal.getByRole('button', { name: CONFIRM_INSTALL, exact: true }).count()) fail('BEFORE: the confirm reads like a first install', body)
   } else {
     if (!body.includes(UPDATE_ON_CANCEL)) fail('the update path has its own Cancel line', body)
     if (body.includes(ENABLE_ON_CANCEL)) fail('the update path must not say the app is switched off', body)
+    if (!body.includes(UPDATE_OUTCOME)) fail('the consent state says this is an update', body)
+    if (!await modal.getByRole('button', { name: CONFIRM_UPDATE, exact: true }).count()) fail('the confirm names the update', body)
   }
   await modal.screenshot({ path: `${OUT}/${PREFIX}-01-update-consent.png` })
   await page.close()
@@ -182,10 +197,12 @@ async function captureNotSaved(context, base) {
   const body = await modal.innerText()
   assertNoInstallCopy(body)
   if (!text.includes(TRUST_REASON)) fail("the modal must render the server's reason beneath", text)
+  if (body.includes(UPDATE_OUTCOME)) fail('the outcome line is gone once a failure headline shows', body)
   if (PREFIX === 'before') {
-    if (!text.includes(ONE_SWITCH)) fail('BEFORE: the update path borrows the enable headline', text)
-    if (!body.includes(ENABLE_ON_CANCEL)) fail('BEFORE: the update path borrows the enable Cancel line', body)
+    if (!text.includes(LOGS_CLAUSE)) fail('BEFORE: the not-saved headline points at logs', text)
   } else {
+    if (text.includes(LOGS_CLAUSE)) fail('the not-saved headline must not point at logs', text)
+    if (!text.includes(ASK_CLAUSE)) fail('the not-saved headline points at the agent hand-off', text)
     if (!text.includes(UPDATE_GENERIC)) fail('the not-saved headline says the app could not be updated', text)
     if (text.includes(ONE_SWITCH)) fail('the update path must not say trusting is what turns the app on', text)
     if (!body.includes(UPDATE_ON_CANCEL)) fail('the not-saved state keeps the update Cancel line', body)
@@ -203,10 +220,12 @@ async function captureTrusted(context, base) {
   assertNoInstallCopy(body)
   if (!text.includes(UPDATE_REASON)) fail("the modal must render the server's reason beneath", text)
   if (page.rollbacks() !== 0) fail('the grant must stand: the app is installed, so nothing is rolled back', text)
+  if (body.includes(UPDATE_OUTCOME)) fail('the outcome line is gone once a failure headline shows', body)
   if (PREFIX === 'before') {
-    if (!text.includes(ONE_SWITCH)) fail('BEFORE: the update path borrows the enable headline', text)
-    if (!body.includes(ENABLE_ON_CANCEL_GRANTED)) fail('BEFORE: the update path borrows the enable granted Cancel line', body)
+    if (!text.includes(RECONFIRM)) fail('BEFORE: the trusted headline says the retry re-confirms the trust', text)
   } else {
+    if (text.includes(RECONFIRM)) fail('the trusted headline must not call the retry trusting again', text)
+    if (!text.includes(RETRY_CLAUSE)) fail('the trusted headline says the retry keeps the trust already given', text)
     if (!text.includes(UPDATE_GRANTED)) fail('the trusted headline says the app is trusted but could not be updated', text)
     if (text.includes(ONE_SWITCH)) fail('the update path must not say trusting is what turns the app on', text)
     if (!body.includes(UPDATE_ON_CANCEL_GRANTED)) fail('the trusted state names what Cancel leaves: trusted, update not re-run', body)
