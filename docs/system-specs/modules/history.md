@@ -306,9 +306,13 @@ The dashboard's session list, `website/src/pages/ChatSidebar.tsx`, draws two
 projections of this history. The live list shows the open slots. With the
 Chat on a crew preview on and a crew group to show, it groups them per machine:
 `Local` first, then one collapsible group per crew holding that crew's peer rows and
-the local slots whose turns run there, under a badge read from the tunnel state. A
-disconnected crew keeps its last listed rows, dimmed and without live state, until a
-reload. With no crew group the list draws no group headers. The Older Sessions
+the local slots whose turns run there, under a badge read from the tunnel state. The
+header says how many chats the group shows. Beside its toggle, one button names the
+most urgent chat and counts the shown chats that wait on an approval, wait on an
+answer, or are working, each chat once and in that order; it opens the group, then
+that chat as a click on its row does. A disconnected crew keeps its last listed
+rows, dimmed and without live state or header counts, until a reload. With no crew
+group the list draws no group headers. The Older Sessions
 pane shows the `fetchHistory` pages owned by `store/chat/lifecycle.ts`. Once its
 search box holds `SEARCH_MIN_CHARS` characters it shows `search_sessions` results in
 the server's order, federated across connected crews while one is connected. Both lists order, group

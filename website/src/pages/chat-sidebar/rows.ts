@@ -890,11 +890,18 @@ function rowView(slot: Slot, placement: RowPlacement, scene: RowScene, model: Vi
     // refuses keyboard reorder, so a key collision cannot rewrite the local pin order.
     pinnedOrderIndex: local === null ? -1 : (model.pinnedRank.get(local) ?? -1),
     pinnedReorderEnabled: !model.searchRanks && local !== null,
-    opensElsewhere: local !== null && !isChatPageSurface(slot.surface ?? slot.mode)
-      ? (slot.mode === 'member' && slot.agent ? `/members?member=${encodeURIComponent(slot.agent)}` : '/members')
-      : null,
+    opensElsewhere: opensElsewhereOf(slot),
     shell: scene.shell,
   }
+}
+
+/** The page a LOCAL row's session lives on when the chat page does not render its
+ *  surface, else null; a peer row opens as a window instead. A row's click goes
+ *  there rather than switching the pane (`SessionRowView.opensElsewhere`). */
+export function opensElsewhereOf(slot: Slot): string | null {
+  return localKeyOf(slot) !== null && !isChatPageSurface(slot.surface ?? slot.mode)
+    ? (slot.mode === 'member' && slot.agent ? `/members?member=${encodeURIComponent(slot.agent)}` : '/members')
+    : null
 }
 
 /** Every `SessionRowView` field. A `Record` over `keyof`, so a field added to the view

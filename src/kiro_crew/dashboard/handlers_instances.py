@@ -2233,11 +2233,11 @@ _PEER_SLOT_STR_FIELDS: dict[str, int] = {
 }
 
 #: The booleans the sidebar reads, coerced with ``is True`` rather than
-#: truth-tested: a peer answering ``"running": "no"`` must not raise a spinner or
-#: an approval badge it never claimed. The hook normalizes these too — doing it
-#: here as well is what makes the WIRE honest, so this route answers the same way
-#: for any reader, not only the one frontend that happens to re-check.
-_PEER_SLOT_BOOL_FIELDS = ("running", "pending_approval")
+#: truth-tested: a peer answering ``"running": "no"`` must not raise a spinner, an
+#: approval badge or a question it never claimed. The hook normalizes these too —
+#: doing it here as well is what makes the WIRE honest, so this route answers the
+#: same way for any reader, not only the one frontend that happens to re-check.
+_PEER_SLOT_BOOL_FIELDS = ("running", "pending_approval", "needs_input")
 
 #: The two keys ALLOWLISTED from a peer row's ``parent`` citation (``{slot, key}``,
 #: the shape ``lineage_parents`` puts on every local row), each clamped like

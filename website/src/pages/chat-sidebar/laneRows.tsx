@@ -42,7 +42,7 @@ export const SIDEBAR_DISPLACEMENT_WINDOW = 48
 
 /** The lane row renderers for one shell render. */
 export function createLaneRows(shell: SidebarScope) {
-  const { collapsedCrews, collapsedSpaces, crewEnable, historyOpen, hoverPinRef, isActiveRow, isStaleExempt,
+  const { collapsedCrews, collapsedSpaces, connected, crewEnable, historyOpen, hoverPinRef, isActiveRow, isStaleExempt,
     listNarrowed, openHistoryPane, rowActions, rowAnimEnabled, rowViews, setStaleExpanded, shownCrewGroups,
     shownCrewRows, sidebarRows, staleCollapseMs, staleExpanded, staticRows, toggleCrewCollapsed,
     toggleSpaceCollapsed } = shell
@@ -221,6 +221,7 @@ export function createLaneRows(shell: SidebarScope) {
       collapsed={collapsedCrews.has(g.id)} onToggle={toggleCrewCollapsed} hideWhenEmpty={listNarrowed}
       chevron={<DisclosureChevron open={!collapsedCrews.has(g.id)} size={11} />}
       onEnable={crewEnable.onEnable}
+      attention={{ isRunning: sidebarRows.isRunning, connected, actions: rowActions }}
       spaces={{
         collapsed: collapsedSpaces, onToggle: toggleSpaceCollapsed,
         // A local folder's own body: connector line, inset and collapse motion.
