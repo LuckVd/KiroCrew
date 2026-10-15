@@ -225,8 +225,9 @@ def _safe_tool_label(raw: str) -> str:
 _WJ = "\u2060"
 # A scheme separator (``https:``, ``mailto:``, ``javascript:``) and a host dot
 # (``www.x``, ``evil.example``, ``a@b.co``), including the ideographic full stop
-# that IDNA treats as a dot and NFKC leaves alone.
-_AUTOLINK_SEP_RE = re.compile(r"[:.\u3002]")
+# that IDNA treats as a dot and NFKC leaves alone. ``&`` too, so a client that
+# decodes ``&#58;`` / ``&#46;`` before it autolinks never sees an entity.
+_AUTOLINK_SEP_RE = re.compile(r"[:&.\u3002]")
 
 
 def _card_tool_label(label: str) -> str:
@@ -235,12 +236,12 @@ def _card_tool_label(label: str) -> str:
     The strip removes ``[text](url)`` syntax, but the Webex client also autolinks
     a BARE ``https://x`` or ``www.x`` in a TextBlock, which would plant a
     clickable target in the one card the user is asked to trust. A word joiner
-    after every ``:`` and before every dot breaks each link shape while the text
-    reads the same. Card only: the text prompt wraps the label in a code span,
+    after every ``:`` and ``&`` and before every dot breaks each link shape (and
+    any HTML entity) while the text reads the same. Card only: the text prompt wraps the label in a code span,
     which no client links.
     """
     return _AUTOLINK_SEP_RE.sub(
-        lambda m: m.group() + _WJ if m.group() == ":" else _WJ + m.group(), label
+        lambda m: m.group() + _WJ if m.group() in ":&" else _WJ + m.group(), label
     )
 
 

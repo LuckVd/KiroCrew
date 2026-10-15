@@ -667,6 +667,7 @@ class TestApprovalCardToolLabel:
             "visit evil｡example",
             "visit evil．example",
             "<https://evil.example>",
+            "https&#58;//evil&#46;example",
             "x " * 200 + "https://evil.example",
         ],
     )
@@ -675,13 +676,13 @@ class TestApprovalCardToolLabel:
         assert "://" not in text
         assert "](" not in text
         assert "www." not in text
-        for sep in (":", ".", "\u3002"):
+        for sep in (":", "&", ".", "\u3002"):
             for i, ch in enumerate(text):
                 if ch != sep:
                     continue
-                # Every scheme colon is followed, and every dot preceded, by a
-                # word joiner, so no token the client scans is a link.
-                if sep == ":":
+                # Every colon and ``&`` is followed, and every dot preceded, by a
+                # word joiner, so no token the client scans is a link or entity.
+                if sep in ":&":
                     assert text[i + 1] == "\u2060", text
                 else:
                     assert text[i - 1] == "\u2060", text
