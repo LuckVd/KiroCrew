@@ -132,9 +132,11 @@ The model prompt snapshot is built on the gateway from existing durable local st
 
 Missing state stays missing. The prompt forbids invented work, progress, percentages, dates, deadlines, elapsed-time claims, and ETAs. Worker transcript text is not read; only the report the worker deliberately wrote to the shared work ledger is eligible.
 
-The model returns a small structured result. The gateway validates it, supplies the exact source quote itself, caps the current-state facts and suggestions, and applies existing display redaction. The visible second message has exactly three parts: **Problem**, **Current status**, and **Suggested actions**. Suggested actions contain one to three items for the user. Empty or malformed output produces the ordinary failure message from section 3.4.
+The model returns a small structured result. The gateway validates it, supplies the exact source quote itself, caps the current-state facts and suggestions, and applies existing display redaction. The visible second message has exactly three parts: **Problem**, which holds the exact original-request quote; **Current status**; and **Suggested actions**. Suggested actions contain one to three self-contained actions for the user. Empty or malformed output produces the ordinary failure message from section 3.4.
 
-A successful brief is a durable `assistant` transcript row tagged `warm_task_brief_result`, rendered through the ordinary crewmate-message path and attributed to the selected crewmate. Preparation, result, and failure rows are excluded from task fingerprints, session summaries, model replay and recall, history consolidation, compaction evidence, and auto-nudge evidence, so generated speech cannot become new task truth or feed another model call. Existing redaction runs before persistence. The durable claim and row fingerprint prevent reload from regenerating or duplicating it.
+Suggested actions are guidance for the user, not reply choices or hidden commands for the crewmate. If the user wants the crewmate to act, their next message states that action in their own words. The generated brief stays out of model replay even when the reply refers to it: admitting model-written suggestions as new model evidence would let generated claims become task truth and recursively ground later work.
+
+A successful brief is a durable `assistant` transcript row tagged `warm_task_brief_result`, rendered through the ordinary crewmate-message path and attributed to the selected crewmate. Preparation, result, and failure rows are excluded from task fingerprints, session summaries, model replay and recall, history consolidation, compaction evidence, and auto-nudge evidence, so generated speech cannot become new task truth or feed another model call. Every model-derived transcript reader applies the shared `is_warm_task_brief_message` predicate from `warm_task_brief_contract.py`; focused tests feed a generated row through each reader and fail if any one admits it. Existing redaction runs before persistence. The durable claim and row fingerprint prevent reload from regenerating or duplicating it.
 
 ### 3.6 One bounded model call
 
@@ -221,7 +223,7 @@ The implementation uses focused tests only.
 - **Return before 30 minutes:** no message and no model call.
 - **Duplicate focus or multiple tabs:** one return edge, one preparing message, and one model call.
 - A return-boundary test proves the deterministic preparing message is persisted and visible before `run_bg_oneliner` starts and costs no model call itself.
-- A result test proves the second ordinary crewmate message contains the exact original request, truthful current task state, and one to three next steps.
+- A result test proves **Problem** contains the exact original request, **Current status** stays truthful, and **Suggested actions** contains one to three user-owned actions.
 - A state test runs two qualifying away/return cycles with no external task change and proves one model call: generated task-brief messages never alter the fingerprint.
 - Race tests prove a user send, a second leave, worker/task change, newer assistant answer, completion, or cancellation retracts generated messages and suppresses the stale result.
 - Message tests pin ordinary crewmate rendering, the exact failure text, persistence-before-surface, and stale row-id retraction.
