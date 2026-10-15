@@ -1507,9 +1507,16 @@ def serves_managed_tools(call_tool_fn: Callable[..., Any]) -> bool:
         return True
     try:
         real = os.path.realpath(filename)
-        return os.path.commonpath([real, _PACKAGE_DIR]) == _PACKAGE_DIR
-    except (OSError, ValueError):
+    except OSError:
         return True
+    try:
+        return os.path.commonpath([real, _PACKAGE_DIR]) == _PACKAGE_DIR
+    except ValueError:
+        # Both paths are absolute, so ``commonpath`` raises only when they sit
+        # on different drives (a GitHub-hosted Windows runner checks out on
+        # ``D:`` while ``tmp_path`` lives on ``C:``). A file on another drive
+        # cannot be inside the package directory, so that answer IS known.
+        return False
 
 
 def respond(req_id: Any, result: Any, error: dict | None = None) -> None:

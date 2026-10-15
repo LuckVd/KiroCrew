@@ -14,8 +14,10 @@ from __future__ import annotations
 import functools
 import importlib.util
 import json
+import os
 import sys
 
+import pytest
 from test_mcp_shared import _LoopHarness, _tools_call
 
 import kiro_crew.mcp_shared as mcp_shared
@@ -61,6 +63,32 @@ class TestServesManagedTools:
         assert mcp_shared.serves_managed_tools(len) is True
         generated = eval("lambda name, args: 'ok'")  # noqa: S307 -- code with no file
         assert mcp_shared.serves_managed_tools(generated) is True
+
+    def test_a_handler_on_another_drive_is_not_managed(self, tmp_path, monkeypatch):
+        """A GitHub-hosted Windows runner checks the repo out on ``D:`` while
+        ``tmp_path`` lives on ``C:``; ``os.path.commonpath`` refuses two drives
+        with ``ValueError``. A file on another drive is outside the package, so
+        the answer is False, not the fail-closed True."""
+        app = _app_module(tmp_path, monkeypatch)
+
+        def _two_drives(paths):
+            raise ValueError("Paths don't have the same drive")
+
+        monkeypatch.setattr(os.path, "commonpath", _two_drives)
+        assert mcp_shared.serves_managed_tools(app.call_tool) is False
+
+    @pytest.mark.skipif(sys.platform != "win32", reason="drive letters exist only on Windows")
+    def test_a_handler_on_another_drive_letter_is_not_managed_on_windows(self):
+        """The same case without a stub: a handler whose code file sits on a
+        drive letter the package does not use."""
+        package_drive = os.path.splitdrive(mcp_shared._PACKAGE_DIR)[0].upper()
+        other = next(f"{c}:" for c in "ZYXWVUTSRQPONMLKJIHGFED" if f"{c}:" != package_drive)
+        code = compile(
+            "def call_tool(name, args):\n    return name\n", f"{other}\\app\\mcp_server.py", "exec"
+        )
+        namespace: dict = {}
+        exec(code, namespace)  # noqa: S102 -- test-owned source, fixed above
+        assert mcp_shared.serves_managed_tools(namespace["call_tool"]) is False
 
 
 class TestAppServerSkipsThePolicyRead:
