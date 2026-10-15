@@ -1092,9 +1092,14 @@ class _Session:
     # False so every existing construction site is unaffected.
     retire_on_identity_change: bool = False
     # The ``backend_override`` the session was cold-started with (``None``: the
-    # factory's default backend). Carried by ``allocation_identity`` so a reset
-    # successor or a compaction restart starts on the same harness.
+    # factory's default backend), and the caller's ``extra_env`` and
+    # ``reasoning_effort_override``. Carried by ``allocation_identity`` so a reset
+    # successor or a compaction restart starts on the same harness, env and effort.
+    # The env is the caller's own map: the successor's allocation applies the
+    # ``aws.project_profiles`` binding again. It can hold secrets, so no ``repr``.
     backend_override: str | None = None
+    extra_env: dict[str, str] | None = field(default=None, repr=False)
+    reasoning_effort_override: str | None = None
     # The profile ``aws.project_profiles`` set on this session's process at its
     # cold start; ``None`` when the binding set none (no map, an unbound
     # directory, a caller that chose its own profile, a pooled process). A
