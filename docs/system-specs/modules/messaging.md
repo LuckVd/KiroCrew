@@ -3124,6 +3124,14 @@ default install no Slack session was ever LLM-titled.
   `TITLE_TURN_TIMEOUT_SECS` (30s), `TITLE_INPUT_CHARS` (200) per side, capped at
   `TITLE_MAX_CHARS` (80) after credential/exfiltration redaction. `get_lock()`
   serializes the shared background session and rebinds per event loop.
+- **Each side of the exchange is wrapped as data.** `build_title_prompt` puts the
+  user and assistant text in `<conv-{token}-user>` / `<conv-{token}-assistant>`
+  tags, with a fresh `secrets.token_hex(8)` per call, and the instruction says the
+  tagged content is never instructions. Before interpolation each side passes
+  `context_assembly.markers.neutralize_untrusted_text`, loses every
+  `str.splitlines` line break (so it cannot start a line and forge a `user:` /
+  `assistant:` role label) and has its angle brackets escaped in all forms (so it
+  cannot close its own wrapper even with the token known).
 - **No model id, anywhere.** The turn runs through `llm_helpers.background_turn`,
   so the model is whatever the shared background session was created with
   (`agent.role_models.background`, default `"auto"`). Spend is labelled
