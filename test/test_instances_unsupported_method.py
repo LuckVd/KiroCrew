@@ -21,7 +21,6 @@ from kiro_crew.instances.registry import Instance, InstancesRegistry
 from kiro_crew.instances.ssh_tunnel_manager import SshTunnelManager, TunnelState, TunnelStatus
 from kiro_crew.instances.validation import SshValidationError, UnsupportedConnectionMethodError
 
-
 _TASK = "0123456789abcdef0123456789abcdef"
 
 
