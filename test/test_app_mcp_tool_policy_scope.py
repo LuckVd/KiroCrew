@@ -12,6 +12,7 @@ skips the read for a handler outside the package.
 from __future__ import annotations
 
 import functools
+import os
 import importlib.util
 import json
 import sys
@@ -56,6 +57,16 @@ class TestServesManagedTools:
         app = _app_module(tmp_path, monkeypatch)
         assert mcp_shared.serves_managed_tools(app.call_tool) is False
         assert mcp_shared.serves_managed_tools(functools.partial(app.call_tool, "x")) is False
+
+    def test_a_handler_whose_path_prefix_differs_is_not_managed(self, tmp_path, monkeypatch):
+        """Cross-drive path variant: package prefix on D:\\, handler file on C:\\."""
+        app = _app_module(tmp_path, monkeypatch)
+        # No real path on this machine starts with this Windows-style prefix.
+        # Models a GitHub Actions runner where the checkout is on D:\\a\\ and
+        # pytest tmp_path is on C:\\Users\\...  -- different drives.
+        fake_prefix = os.path.normcase(r"D:\a\KiroCrew\src\kiro_crew") + os.sep
+        monkeypatch.setattr(mcp_shared, "_PACKAGE_DIR_PREFIX", fake_prefix)
+        assert mcp_shared.serves_managed_tools(app.call_tool) is False
 
     def test_a_handler_with_no_code_location_keeps_the_policy(self):
         assert mcp_shared.serves_managed_tools(len) is True

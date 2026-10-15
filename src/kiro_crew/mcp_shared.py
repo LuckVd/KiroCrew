@@ -1475,7 +1475,10 @@ _UNRESOLVED_REFUSES_CALL = frozenset(
 #: The directory this package's own code lives in. A tool handler whose code is
 #: under it belongs to a server Kiro Crew ships: its own control plane, and the
 #: builtin apps under ``apps/builtins``.
-_PACKAGE_DIR = os.path.dirname(os.path.realpath(__file__))
+#: Normalized with ``normcase`` so Windows path comparisons are case-insensitive.
+_PACKAGE_DIR = os.path.normcase(os.path.dirname(os.path.realpath(__file__)))
+#: Separator-terminated prefix for path containment checks.
+_PACKAGE_DIR_PREFIX = _PACKAGE_DIR + os.sep
 
 
 def serves_managed_tools(call_tool_fn: Callable[..., Any]) -> bool:
@@ -1506,9 +1509,9 @@ def serves_managed_tools(call_tool_fn: Callable[..., Any]) -> bool:
     if not filename or filename.startswith("<"):
         return True
     try:
-        real = os.path.realpath(filename)
-        return os.path.commonpath([real, _PACKAGE_DIR]) == _PACKAGE_DIR
-    except (OSError, ValueError):
+        real = os.path.normcase(os.path.realpath(filename))
+        return real.startswith(_PACKAGE_DIR_PREFIX)
+    except OSError:
         return True
 
 
