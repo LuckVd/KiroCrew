@@ -16,6 +16,7 @@ import importlib.util
 import json
 import os
 import sys
+import types
 
 import pytest
 from test_mcp_shared import _LoopHarness, _tools_call
@@ -45,6 +46,23 @@ def _app_module(tmp_path, monkeypatch):
     return module
 
 
+_PKG = r"D:\a\KiroCrew\src\kiro_crew"
+
+
+def _two_drives(paths):
+    """What ``ntpath.commonpath`` raises for two absolute paths on different drives."""
+    raise ValueError("Paths don't have the same drive")
+
+
+def _handler_at(filename: str):
+    """A plain function whose code object reports *filename* as its source file."""
+
+    def call_tool(name, args):
+        return name
+
+    return types.FunctionType(call_tool.__code__.replace(co_filename=filename), {})
+
+
 class TestServesManagedTools:
     def test_a_handler_in_the_package_is_managed(self):
         assert mcp_shared.serves_managed_tools(mcp_shared.respond) is True
@@ -64,18 +82,33 @@ class TestServesManagedTools:
         generated = eval("lambda name, args: 'ok'")  # noqa: S307 -- code with no file
         assert mcp_shared.serves_managed_tools(generated) is True
 
-    def test_a_handler_on_another_drive_is_not_managed(self, tmp_path, monkeypatch):
+    def test_a_handler_on_another_drive_is_not_managed(self, monkeypatch):
         """A GitHub-hosted Windows runner checks the repo out on ``D:`` while
         ``tmp_path`` lives on ``C:``; ``os.path.commonpath`` refuses two drives
         with ``ValueError``. A file on another drive is outside the package, so
         the answer is False, not the fail-closed True."""
-        app = _app_module(tmp_path, monkeypatch)
-
-        def _two_drives(paths):
-            raise ValueError("Paths don't have the same drive")
-
         monkeypatch.setattr(os.path, "commonpath", _two_drives)
-        assert mcp_shared.serves_managed_tools(app.call_tool) is False
+        assert mcp_shared._inside_package_dir(r"C:\Users\r\tmp\app\mcp_server.py", _PKG) is False
+        assert mcp_shared._inside_package_dir(r"\\?\C:\Users\r\mcp_server.py", _PKG) is False
+
+    def test_a_refusal_between_spellings_of_one_drive_keeps_the_policy(self, monkeypatch):
+        monkeypatch.setattr(os.path, "commonpath", _two_drives)
+        assert mcp_shared._inside_package_dir(r"\\?\D:\a\KiroCrew\src\kiro_crew\x.py", _PKG) is True
+        assert mcp_shared._inside_package_dir(r"d:\a\KiroCrew\src\kiro_crew\x.py", _PKG) is True
+
+    def test_a_refusal_with_no_drives_at_all_keeps_the_policy(self, monkeypatch):
+        monkeypatch.setattr(os.path, "commonpath", _two_drives)
+        assert mcp_shared._inside_package_dir("/tmp/app/mcp_server.py", "/opt/kc/kiro_crew") is True
+
+    def test_a_handler_whose_path_cannot_resolve_keeps_the_policy(self, monkeypatch):
+        """``realpath`` refuses an embedded NUL on POSIX and returns the string
+        unchanged on Windows, so the refusal is forced rather than provoked."""
+
+        def _refuses(path):
+            raise ValueError("embedded null byte")
+
+        monkeypatch.setattr(os.path, "realpath", _refuses)
+        assert mcp_shared.serves_managed_tools(_handler_at(r"C:\app\mcp_server.py")) is True
 
     @pytest.mark.skipif(sys.platform != "win32", reason="drive letters exist only on Windows")
     def test_a_handler_on_another_drive_letter_is_not_managed_on_windows(self):
@@ -83,12 +116,7 @@ class TestServesManagedTools:
         drive letter the package does not use."""
         package_drive = os.path.splitdrive(mcp_shared._PACKAGE_DIR)[0].upper()
         other = next(f"{c}:" for c in "ZYXWVUTSRQPONMLKJIHGFED" if f"{c}:" != package_drive)
-        code = compile(
-            "def call_tool(name, args):\n    return name\n", f"{other}\\app\\mcp_server.py", "exec"
-        )
-        namespace: dict = {}
-        exec(code, namespace)  # noqa: S102 -- test-owned source, fixed above
-        assert mcp_shared.serves_managed_tools(namespace["call_tool"]) is False
+        assert mcp_shared.serves_managed_tools(_handler_at(f"{other}\\app\\mcp_server.py")) is False
 
 
 class TestAppServerSkipsThePolicyRead:

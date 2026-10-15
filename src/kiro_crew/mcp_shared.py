@@ -8,6 +8,7 @@ import contextlib
 import functools
 import json
 import logging
+import ntpath
 import os
 import queue
 import select
@@ -1507,16 +1508,34 @@ def serves_managed_tools(call_tool_fn: Callable[..., Any]) -> bool:
         return True
     try:
         real = os.path.realpath(filename)
-    except OSError:
+    except (OSError, ValueError):
         return True
+    return _inside_package_dir(real, _PACKAGE_DIR)
+
+
+def _inside_package_dir(real: str, package_dir: str) -> bool:
+    r"""Whether resolved path *real* lies under *package_dir*; True when unsure.
+
+    ``os.path.commonpath`` refuses two absolute paths on different drives (a
+    GitHub-hosted Windows runner checks the repo out on ``D:`` while pytest's
+    ``tmp_path`` lives on ``C:``). A file on another drive cannot be inside the
+    package directory, so that refusal IS an answer: False. A refusal between
+    two spellings of the same drive (``\\?\C:`` beside ``C:``) is not, and
+    keeps the fail-closed True.
+    """
     try:
-        return os.path.commonpath([real, _PACKAGE_DIR]) == _PACKAGE_DIR
+        return os.path.commonpath([real, package_dir]) == package_dir
     except ValueError:
-        # Both paths are absolute, so ``commonpath`` raises only when they sit
-        # on different drives (a GitHub-hosted Windows runner checks out on
-        # ``D:`` while ``tmp_path`` lives on ``C:``). A file on another drive
-        # cannot be inside the package directory, so that answer IS known.
-        return False
+        return _nt_drive(real) == _nt_drive(package_dir)
+
+
+def _nt_drive(path: str) -> str:
+    r"""The drive of a Windows path, case-folded, with any ``\\?\`` prefix removed."""
+    if path.startswith("\\\\?\\UNC\\"):
+        path = "\\\\" + path[len("\\\\?\\UNC\\") :]
+    elif path.startswith("\\\\?\\"):
+        path = path[len("\\\\?\\") :]
+    return ntpath.normcase(ntpath.splitdrive(path)[0])
 
 
 def respond(req_id: Any, result: Any, error: dict | None = None) -> None:
