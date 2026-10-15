@@ -1,10 +1,11 @@
 /**
  * One file-record decision for every surface that draws a `file` row.
  *
- * The SDK default (ChatEmbed, SideChat) and ChatPage's override must accept and
- * reject the same records. Each keeps its own fallback for a rejected record:
- * the SDK default draws nothing, ChatPage hands the row to renderUnparsedFile
- * (its conversational bubble), and neither ever gives FileCard a non-record.
+ * The SDK default (ChatEmbed, SideChat), ChatPage's override and the crew
+ * window must accept and reject the same records. Each keeps its own fallback
+ * for a rejected record: the SDK default and the crew window draw nothing,
+ * ChatPage hands the row to renderUnparsedFile (its conversational bubble), and
+ * none ever gives FileCard a non-record.
  */
 import { describe, it, expect } from 'vitest'
 import { render, screen } from '@testing-library/react'
@@ -17,6 +18,7 @@ import {
   type MessageRenderContext,
 } from '../app-sdk/messageRenderers'
 import { createTranscriptRenderers } from '../pages/chat/transcriptRenderers'
+import { createCrewWindowRenderers } from '../pages/chat/crew-window/crewWindowRenderers'
 import { parseFileRecord } from '../lib/fileRecord'
 
 const fileMsg = (content: string): ChatMessage =>
@@ -37,6 +39,12 @@ const UNPARSED = 'unparsed-fallback'
 const chatPageRegistry = mergeRenderers(createTranscriptRenderers({
   slot: 's1',
   renderUnparsedFile: m => <div data-testid={UNPARSED}>{m.content}</div>,
+}))
+
+const crewWindowRegistry = mergeRenderers(createCrewWindowRenderers({
+  instanceId: 'cd-1', key: 'k1', name: 'devbox',
+  canRewind: () => false, onRewind: () => false,
+  regenerateRow: null, onRegenerate: () => {}, rewindDisabled: false,
 }))
 
 function drawWith(registry: Parameters<typeof resolveRenderer>[1], content: string) {
@@ -106,6 +114,16 @@ describe('both surfaces decide the same way', () => {
     expect(screen.getByTestId(UNPARSED).textContent).toBe(content)
     expect(screen.queryByTestId('row')).toBeNull()
     expect(screen.queryByRole('link')).toBeNull()
+  })
+
+  it.each(VALID)('%s: the crew window names the file', (_name, content) => {
+    const { filename } = JSON.parse(content) as { filename: string }
+    render(<>{drawWith(crewWindowRegistry, content)}</>)
+    expect(screen.getByTestId('crew-window-file').textContent).toContain(filename)
+  })
+
+  it.each(INVALID)('%s: the crew window draws nothing', (_name, content) => {
+    expect(drawWith(crewWindowRegistry, content)).toBeNull()
   })
 
   it('ChatPage draws nothing for a rejected record when no fallback is passed', () => {
