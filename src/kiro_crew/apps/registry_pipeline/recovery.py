@@ -245,8 +245,22 @@ def _app_sources_dir() -> Path:
 
 
 def app_source_dir(name: str) -> Path:
-    """Return ~/.kiro/crew/app-sources/{name}/ — persistent clone directory."""
-    return _app_sources_dir() / name
+    """Return ~/.kiro/crew/app-sources/{name}/ — persistent clone directory.
+
+    Raises ValueError unless *name* is exactly one path component naming a child of
+    the root, so a name read back from app-writable metadata (``registry:<name>`` in
+    ``installed.json``) cannot aim a caller at ``..``, the root itself, a nested path
+    or an absolute one. Exactly: the join must keep *name* unchanged, since pathlib
+    drops a trailing separator and ``../`` would become ``..``. A trailing dot or
+    space is refused too: Windows drops it when it opens the path, so ``...`` names
+    the root there. The check is lexical and follows no link; a link already at the
+    slot is left to the caller.
+    """
+    root = _app_sources_dir()
+    target = root / name
+    if target.parent != root or target.name != name or name.endswith((".", " ")):
+        raise ValueError(f"{name!r} does not name one checkout under {root}")
+    return target
 
 
 def _restore_moved_aside(

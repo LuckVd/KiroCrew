@@ -1133,6 +1133,11 @@ lifecycle lock and the one step that can safely refuse runs FIRST:
 7. For a registry-sourced app, its clone under `app-sources/<registry-name>` is
    removed, on success only. The removal runs off-loop and inside the lifecycle
    lock, so a queued install cannot have the tree it just re-cloned deleted.
+   `<registry-name>` is read back from the app-writable `installed.json`, so
+   `app_source_dir` refuses one that is not a single child of `app-sources/`
+   (`..` or `../`, the root itself, a nested or absolute path, a trailing dot or
+   space);
+   the removal is then skipped with a warning and the app is still uninstalled.
 
 The owner-only migration cleanup route delegates to uninstall for a retired builtin
 listed in `_MIGRATED_BUILTINS` or orphaned in this build. Eligibility is rechecked
