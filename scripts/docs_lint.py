@@ -365,6 +365,9 @@ _UNRESOLVABLE_REF_OK: frozenset[str] = frozenset(
         "apps/ops-mission-control/data/incidents/index.json",
         # spec-builder's trust keystone: `config_dir() / "trust" / ...`.
         "trust/spec-builder-decisions.json",
+        # Discord auto-thread trust keystone: `auto_thread_store.py`'s
+        # `_store_path()` joins `config_dir() / "trust" / _STORE_NAME`.
+        "trust/discord_auto_threads.json",
         # Optional dev-only override read from KIROCREW_PROJECT_DIR by
         # `agent.py`'s `_shipped_defaults()`; the shipped file is
         # `config/defaults.json`, which resolves.
