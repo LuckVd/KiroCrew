@@ -93,6 +93,7 @@ import {
   safeHref,
 } from '../components/appstore/TrustAppModal'
 import { __resetErrorJournalForTests, findReport } from '../utils/errorReport'
+import { namedCeiling } from './namedCeiling'
 
 /** An ApiError-shaped rejection: message plus the raw structured body. */
 function apiError(status: number, body: object, message = 'boom') {
@@ -320,6 +321,29 @@ describe('LibraryPage trust gate', () => {
     expect(text).not.toContain(`${K}.install_on_cancel`)
   })
 
+  it('says on the enable gate that a community registry listing was not vetted (#11159)', async () => {
+    listRegistry.mockResolvedValue({ apps: [{ ...THIRD_PARTY, _registry: 'community' }], serverPlatform: { os: 'darwin', arch: 'arm64' } })
+    listRegistries.mockResolvedValue({
+      registries: [],
+      pinned: [{ name: 'community', repo: 'https://git.example.test/community', branch: 'main', trust: 'owner', review: 'community' }],
+    })
+    enableApp.mockRejectedValue(TRUST_DENIED())
+    renderPage()
+    await clickEnable()
+    await waitFor(() => expect(modalTitle()).toBeTruthy(), namedCeiling('ENABLE_GATE_OPEN', 5000))
+
+    // Chain: registry + registries queries resolve, the trust target is built
+    // from them, then the dialog renders the box.
+    const box = await within(screen.getByRole('dialog'))
+      .findByTestId('trust-app-registry-community', undefined, namedCeiling('ENABLE_GATE_TIER', 5000))
+    expect(box.textContent).toContain('components.appstore.registryTier.community')
+    // The credential clause follows the registry's `trust`, not its review tier.
+    expect(box.textContent).toContain(`${K}.registry_community_credentialed LaunchDarkly`)
+    // Display only: the consent copy beside it is unchanged.
+    expect(screen.getByText(`${K}.not_reviewed`)).toBeTruthy()
+    expect(screen.getByText(`${K}.revocable`)).toBeTruthy()
+  })
+
   it('grants trust for that one app and retries the enable on confirm', async () => {
     enableApp.mockRejectedValueOnce(TRUST_DENIED()).mockResolvedValue({ ok: true })
     renderPage()
@@ -493,6 +517,34 @@ describe('registry install trust gate', () => {
     expect(text).toContain(`${K}.install_on_cancel LaunchDarkly`)
     expect(text).not.toContain(`${K}.install_on_cancel_granted`)
     expect(text).not.toContain(`${K}.on_close_desktop_unsupported`)
+  })
+
+  it('says on the install gate that a community registry listing was not vetted (#11159)', async () => {
+    listRegistry.mockResolvedValue({ apps: [{ ...NOT_INSTALLED, _registry: 'community' }], serverPlatform: { os: 'darwin', arch: 'arm64' } })
+    listRegistries.mockResolvedValue({
+      registries: [],
+      pinned: [{ name: 'community', repo: 'https://git.example.test/community', branch: 'main', trust: 'index', review: 'community' }],
+    })
+    // The Get button's install can be refused before the registries list lands;
+    // the tier is resolved when the dialog renders, so it still appears.
+    installFromRegistryStream.mockResolvedValue(INSTALL_DENIED())
+    renderDetailFromGet()
+    // Chain: detail load, registries query, auto-install SSE refusal, dialog.
+    await waitFor(() => expect(modalTitle()).toBeTruthy(), namedCeiling('INSTALL_GATE_OPEN', 5000))
+
+    const box = await within(screen.getByRole('dialog'))
+      .findByTestId('trust-app-registry-community', undefined, namedCeiling('INSTALL_GATE_TIER', 5000))
+    expect(box.textContent).toContain(`${K}.registry_community LaunchDarkly`)
+    expect(box.textContent).not.toContain(`${K}.registry_community_credentialed`)
+    expect(screen.getByText(`${K}.not_reviewed`)).toBeTruthy()
+    expect(within(screen.getByRole('dialog')).getByRole('button', { name: `${K}.confirm_install` })).toBeTruthy()
+  })
+
+  it('shows no registry tier on the install gate for an unreviewed registry (#11159)', async () => {
+    installFromRegistryStream.mockResolvedValue(INSTALL_DENIED())
+    renderDetailFromGet()
+    await waitFor(() => expect(modalTitle()).toBeTruthy(), namedCeiling('INSTALL_GATE_OPEN', 5000))
+    expect(within(screen.getByRole('dialog')).queryByTestId('trust-app-registry-community')).toBeNull()
   })
 
   it('labels the install-path confirm as trust only, since the install lands the app switched off', async () => {
