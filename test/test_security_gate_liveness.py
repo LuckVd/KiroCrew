@@ -323,7 +323,11 @@ def _url_payload_command(n: int) -> str:
 #: start with a literal ``re`` searches at memchr speed, which takes a second
 #: Authorization half and the comments that say why each spelling accepts
 #: exactly what the old one did. No credential branch, gate verdict or pass moved.
-_PACKAGE_LINE_BUDGET = 29_205
+#:
+#: Raised again, from 29,205, for the write tier's reason-or-None spelling and the
+#: stall wording that names the stalled prefix and the cooldown left: a
+#: stall still refuses everywhere it did; only the words a refused agent reads moved.
+_PACKAGE_LINE_BUDGET = 29_230
 
 #: Ceiling on any ONE file in the package. This is what the bound is really for --
 #: a package total says nothing about a single file growing back into a second
