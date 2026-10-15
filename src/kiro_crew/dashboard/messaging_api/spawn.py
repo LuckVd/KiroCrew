@@ -564,7 +564,7 @@ async def api_spawn_continue(request: web.Request) -> web.Response:
     model = str(body.get("model", "") or "")
     try:
         max_turns = max(0, min(int(body.get("max_turns", 0) or 0), 1000))
-    except (TypeError, ValueError):
+    except (TypeError, ValueError, OverflowError):
         max_turns = 0
     # The run's own cwd, resolved OFF the event loop: a continuation has to run
     # where the run ran (a project-local agent does not resolve against the pool

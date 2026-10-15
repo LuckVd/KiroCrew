@@ -446,6 +446,15 @@ class TestApiSpawnContinue:
         assert resp.status == 200
         assert mgr.continue_conversation.call_args.kwargs["max_turns"] == 0
 
+    @pytest.mark.parametrize("raw", ["1e999", "-1e999"])
+    def test_infinite_max_turns_falls_back_to_zero(self, raw: str) -> None:
+        """JSON reads ``1e999`` as an infinite float, which ``int`` cannot convert."""
+        mgr = _mgr()
+        mgr.continue_conversation.return_value = _info()
+        body = json.loads('{"task": "x", "max_turns": %s}' % raw)
+        assert _run(mod.api_spawn_continue, self._req(mgr, body)).status == 200
+        assert mgr.continue_conversation.call_args.kwargs["max_turns"] == 0
+
     def test_the_runs_own_cwd_is_resolved_off_loop_and_forwarded(self) -> None:
         """A continuation has to run where the run ran, or a project-local agent
         fails to resolve and the caller respawns from a digest -- losing the
