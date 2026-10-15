@@ -2638,12 +2638,21 @@ class SecurityEventLog:
         resources: str = "",
         error: str = "",
         critical: bool = False,
+        forwarded: bool | None = None,
     ) -> None:
         """Convenience: log a dashboard/API access event.
 
         Pass ``critical=True`` for fail-closed audits (e.g. safety-override
         activation): the event is written synchronously and a filesystem
         failure is re-raised so the caller can refuse the audited action.
+
+        ``forwarded`` records whether the audited HTTP request reached the
+        gateway through a forwarder (``dashboard.origin.is_proxied_request``).
+        It lands as ``metadata["forwarded"]``, so provenance has its own field
+        and ``caller_identity`` keeps the value the caller passed. ``None`` (the
+        default) writes no key, which means "provenance not recorded by this
+        writer" and never "made directly". A writer that holds the request
+        passes the predicate's result, ``True`` or ``False``.
 
         ``outcome`` is redacted and clipped like ``resources`` and ``error``,
         even though it reads as a constrained vocabulary. It is not one at this
@@ -2669,6 +2678,7 @@ class SecurityEventLog:
                 outcome=_redact_and_clip(outcome) if outcome else "",
                 resources=_redact_and_clip(resources) if resources else "",
                 error=_redact_and_clip(error) if error else "",
+                metadata={} if forwarded is None else {"forwarded": bool(forwarded)},
             ),
             critical=critical,
         )

@@ -1690,6 +1690,7 @@ def _enforce_app_scope(request: web.Request, app_name: str, path: str) -> web.Re
     # the middleware, which log_api_access in addition to _log_auth).
     _sel_fn().log_api_access(
         caller=app_name,
+        forwarded=is_proxied_request(request),
         operation="app_scope_check",
         outcome="denied",
         source="token_auth",
@@ -1920,6 +1921,7 @@ async def _verify_unix_peer(
         )
         _sel_fn().log_api_access(
             caller="unknown",
+            forwarded=is_proxied_request(request),
             operation="dashboard.peer-identity-mismatch",
             outcome="denied",
             source="token_auth",
@@ -2002,6 +2004,7 @@ async def _verify_unix_peer(
             )
             _sel_fn().log_api_access(
                 caller=declared,
+                forwarded=is_proxied_request(request),
                 operation="dashboard.peer-identity-unattested",
                 outcome="denied",
                 source="token_auth",
@@ -2035,6 +2038,7 @@ async def _verify_unix_peer(
             # one is positive evidence that the declaration does not belong here.
             _sel_fn().log_api_access(
                 caller=declared,
+                forwarded=is_proxied_request(request),
                 operation="dashboard.peer-session-unbound",
                 outcome="denied",
                 source="token_auth",
@@ -2058,6 +2062,7 @@ async def _verify_unix_peer(
         # one session has no other identity to be mistaken for.
         _sel_fn().log_api_access(
             caller=declared,
+            forwarded=is_proxied_request(request),
             operation="dashboard.peer-identity-co-tenant",
             outcome="allowed",
             source="token_auth",
@@ -2177,6 +2182,7 @@ async def _verify_unix_peer(
             return None
         _sel_fn().log_api_access(
             caller=declared,
+            forwarded=is_proxied_request(request),
             operation="dashboard.peer-identity-mismatch",
             outcome="denied",
             source="token_auth",
@@ -2534,6 +2540,7 @@ def refuse_unattributable_caller(
     ):
         _sel_fn().log_api_access(
             caller="unattributable",
+            forwarded=is_proxied_request(request),
             operation=operation,
             outcome="denied",
             source="app_isolation",
@@ -2859,6 +2866,7 @@ def token_auth_middleware(
                 _sel = _sel_fn()
                 _sel.log_api_access(
                     caller=peer.login,
+                    forwarded=is_proxied_request(request),
                     operation="tailnet_peer_auth",
                     outcome="denied",
                     source="token_auth",
@@ -2893,6 +2901,7 @@ def token_auth_middleware(
                 _sel = _sel_fn()
                 _sel.log_api_access(
                     caller=request.remote or "",
+                    forwarded=is_proxied_request(request),
                     operation="tailnet_peer_auth",
                     outcome="denied",
                     source="token_auth",
@@ -2977,6 +2986,7 @@ def token_auth_middleware(
                 bind_token_peer(token, repin_key)
                 _sel_fn().log_api_access(
                     caller=peer.login,
+                    forwarded=is_proxied_request(request),
                     operation="tailnet_peer_bind",
                     outcome="granted",
                     source="token_auth",
@@ -3019,6 +3029,7 @@ def token_auth_middleware(
                     _sel = _sel_fn()
                     _sel.log_api_access(
                         caller=_caller,
+                        forwarded=is_proxied_request(request),
                         operation="internal_auth",
                         outcome="denied",
                         source="token_auth",
@@ -3031,6 +3042,7 @@ def token_auth_middleware(
                     _sel = _sel_fn()
                     _sel.log_api_access(
                         caller=_caller,
+                        forwarded=is_proxied_request(request),
                         operation="internal_auth",
                         outcome="granted",
                         source="token_auth",
@@ -3082,6 +3094,7 @@ def token_auth_middleware(
                         _sel = _sel_fn()
                         _sel.log_api_access(
                             caller=_caller,
+                            forwarded=is_proxied_request(request),
                             operation="internal_auth",
                             outcome="denied",
                             source="token_auth",
@@ -3101,6 +3114,7 @@ def token_auth_middleware(
                 _sel = _sel_fn()
                 _sel.log_api_access(
                     caller=_caller,
+                    forwarded=is_proxied_request(request),
                     operation="internal_auth",
                     outcome="denied",
                     source="token_auth",
@@ -3123,6 +3137,7 @@ def token_auth_middleware(
                 _sel = _sel_fn()
                 _sel.log_api_access(
                     caller=_caller,
+                    forwarded=is_proxied_request(request),
                     operation="internal_auth",
                     outcome="denied",
                     source="token_auth",
@@ -3173,6 +3188,7 @@ def token_auth_middleware(
                 _sel = _sel_fn()
                 _sel.log_api_access(
                     caller=_caller,
+                    forwarded=is_proxied_request(request),
                     operation="internal_auth",
                     outcome="granted",
                     source="token_auth",
@@ -3208,6 +3224,7 @@ def token_auth_middleware(
                         _sel = _sel_fn()
                         _sel.log_api_access(
                             caller=_caller,
+                            forwarded=is_proxied_request(request),
                             operation="internal_auth",
                             outcome="denied",
                             source="token_auth",
@@ -3225,6 +3242,7 @@ def token_auth_middleware(
                     _sel = _sel_fn()
                     _sel.log_api_access(
                         caller=_caller,
+                        forwarded=is_proxied_request(request),
                         operation="internal_auth",
                         outcome="denied",
                         source="token_auth",
@@ -3267,6 +3285,7 @@ def token_auth_middleware(
                     _sel = _sel_fn()
                     _sel.log_api_access(
                         caller=_caller,
+                        forwarded=is_proxied_request(request),
                         operation="internal_auth",
                         outcome="granted",
                         source="token_auth",
@@ -3289,6 +3308,7 @@ def token_auth_middleware(
                 _sel = _sel_fn()
                 _sel.log_api_access(
                     caller=_caller,
+                    forwarded=is_proxied_request(request),
                     operation="internal_auth",
                     outcome="denied",
                     source="token_auth",
@@ -3570,6 +3590,7 @@ def token_auth_middleware(
                 # not per request, which would only add volume.
                 _sel_fn().log_api_access(
                     caller=peer.login,
+                    forwarded=is_proxied_request(request),
                     operation="tailnet_peer_bind",
                     outcome="granted",
                     source="token_auth",
@@ -3797,6 +3818,7 @@ def token_auth_middleware(
                         try:
                             _sel_fn().log_api_access(
                                 caller=user_id,
+                                forwarded=is_proxied_request(request),
                                 operation="refresh_token_initial_mint",
                                 outcome="ok",
                                 source="refresh_tokens",
@@ -3876,6 +3898,7 @@ def _log_auth(request: web.Request, user_id: str, outcome: str, error: str) -> N
     try:
         _sel_fn().log_api_access(
             caller=user_id or request.remote or "unknown",
+            forwarded=is_proxied_request(request),
             operation="dashboard.token_auth",
             outcome=outcome,
             resources=request.path,

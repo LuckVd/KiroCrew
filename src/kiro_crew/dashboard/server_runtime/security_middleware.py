@@ -61,6 +61,12 @@ def audit_actor(request: web.Request, caller: str) -> str:
     label, over-warning is the safe direction: it never files a forwarded action
     as the person's own.
 
+    The suffix is the older of two spellings of the same fact. The uniform one
+    is ``metadata["forwarded"]``, which the gateway's auth and audit layers
+    record from the same predicate (these three sites and ``token_auth``'s
+    request-bound rows); see ``_VIA_PROXY_SUFFIX`` for what a missing key means.
+    The suffix stays so the readers already keyed on it keep working.
+
     Its known limit is the same one :func:`origin.is_direct_local_request`
     documents: a forwarder that strips every forwarding header is invisible
     here. This makes the ordinary product paths distinguishable, which is what
@@ -127,6 +133,7 @@ async def _audit_denied(caller: str, request: web.Request, error: str) -> None:
     def _write() -> None:
         sel().log_api_access(
             caller=actor,
+            forwarded=is_proxied_request(request),
             operation=f"{request.method} {request.path}",
             outcome="denied",
             resources=request.path,

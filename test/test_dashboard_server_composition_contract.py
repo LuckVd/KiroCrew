@@ -2328,12 +2328,14 @@ async def test_the_dashboard_inner_layers_serve_the_shell_and_audit_mutations(
     assert [c.kwargs for c in log.log_api_access.call_args_list] == [
         {
             "caller": "dashboard_user",
+            "forwarded": False,
             "operation": "POST /api/things",
             "outcome": "ok",
             "resources": "/api/things",
         },
         {
             "caller": "dashboard_user",
+            "forwarded": False,
             "operation": "DELETE /api/things",
             "outcome": "error",
             "resources": "/api/things",
@@ -2384,6 +2386,7 @@ async def test_the_headless_audit_records_every_api_method(
     assert [c.kwargs for c in log.log_api_access.call_args_list] == [
         {
             "caller": "mcp_tool",
+            "forwarded": False,
             "operation": "GET /api/spawn",
             "outcome": "error",
             "resources": "/api/spawn",

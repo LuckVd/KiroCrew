@@ -763,14 +763,15 @@ _PRE_AUDIT_DENY_STATUSES = frozenset({401, 403})
 #: proxy rather than from the client itself. ``<name>_via_proxy`` means a
 #: forwarder presented it.
 #:
-#: The converse does NOT read across the whole SEL. A plain name means "made
-#: directly" only on the records :func:`audit_actor` reaches: the ok/error rows
-#: of both servers' ``sel_audit_middleware``, and the raised-refusal rows that
-#: go through :func:`_audit_denied`. ``token_auth`` writes its own returned
-#: 401/403 records with its own ``caller`` (``user_id``, ``app_name``,
-#: ``"unattributable"``, ``peer.login``, ...) and never calls this helper, so a
-#: forwarded request refused there is filed under a plain name. Routing those
-#: sites through here would edit a module this change does not touch.
+#: Read provenance from ``metadata["forwarded"]`` (``True`` / ``False``), not
+#: from this suffix. The gateway's auth and audit layers record it on every row
+#: they write while holding the request: both servers' ``sel_audit_middleware``,
+#: :func:`_audit_denied`, and ``token_auth``'s request-bound rows, including its
+#: returned 401/403 refusals. It means the same thing whichever of them wrote
+#: the row. A row with no ``forwarded`` key has no provenance recorded (a
+#: handler's own row, or one written without a request), which is never "made
+#: directly". The suffix is kept, unchanged, so existing readers and queries
+#: keyed on it keep matching.
 _VIA_PROXY_SUFFIX = "_via_proxy"
 
 
