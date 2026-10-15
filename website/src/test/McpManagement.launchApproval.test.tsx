@@ -7,8 +7,13 @@
 //   command that moves between the render and the click is refused, not approved
 // - a launch that could not be shown in full offers no approval at all, and says
 //   so rather than leaving a button that cannot work
-// - a CHANGED command shows what was approved before beside what would run now
-// - the switch of a row waiting for approval keeps that comparison on screen and
+// - a CHANGED command shows the before-list collapsed in a closed <details> by
+//   default so the command being decided stays directly visible, and the full
+//   before-list is one click away; the "Would run now" heading and the command
+//   to approve are always visible without opening the details
+// - when the before-list was never recorded the "not recorded" paragraph is
+//   shown inline (not collapsed) because there is nothing to expand
+// - the switch of a row waiting for approval keeps the comparison on screen and
 //   hands the keyboard to its approve button, rather than reading the launch again
 //   and replacing the before/after with a single-command review panel
 // - a stub listed in `launch_refused` reads `needs approval`, never `stub` or
@@ -178,9 +183,16 @@ describe('McpManagement launch approval', () => {
       name: 'Approve the command alpha-mcp will run',
     })
     expect(document.activeElement).toBe(approve)
+    // "Approved before" is visible as the summary of the collapsed details.
     expect(screen.getByText('Approved before')).toBeTruthy()
-    expect(screen.getByText('Would run now')).toBeTruthy()
+    // The details is closed by default; the switch click must not open it.
+    const detailsEl = screen.getByText('Approved before').closest('details')
+    expect(detailsEl).toBeTruthy()
+    expect(detailsEl).not.toHaveAttribute('open')
+    // Before commands are in the DOM (inside the closed details).
     expect(screen.getByText('alpha-mcp@1')).toBeTruthy()
+    // "Would run now" and the current command are directly visible.
+    expect(screen.getByText('Would run now')).toBeTruthy()
     expect(screen.getByText('alpha-mcp@2')).toBeTruthy()
     expect(read).not.toHaveBeenCalled()
     expect(setStub).not.toHaveBeenCalled()
@@ -589,7 +601,7 @@ describe('McpManagement changed-command comparison', () => {
       },
     })
 
-  it('shows what was approved before beside what would run now', async () => {
+  it('collapses the Approved-before list in a closed details element by default', async () => {
     vi.spyOn(api, 'mcpGatewayStatus').mockResolvedValue(
       changed({
         approved_commands: [['npx', '-y', 'alpha-mcp@2']],
@@ -599,20 +611,60 @@ describe('McpManagement changed-command comparison', () => {
     vi.spyOn(api, 'mcpGatewayServers').mockResolvedValue({ servers: [server] } as never)
 
     mount()
-    expect(await screen.findByText('Approved before')).toBeTruthy()
+    const summary = await screen.findByText('Approved before')
+    const detailsEl = summary.closest('details')
+    expect(detailsEl).toBeTruthy()
+    // Closed by default: no `open` attribute.
+    expect(detailsEl).not.toHaveAttribute('open')
+    // Before command is in the DOM (content is present even when details is closed).
     expect(screen.getByText('alpha-mcp@2')).toBeTruthy()
+  })
+
+  it('shows the before command when the details element is opened', async () => {
+    vi.spyOn(api, 'mcpGatewayStatus').mockResolvedValue(
+      changed({
+        approved_commands: [['npx', '-y', 'alpha-mcp@2']],
+        approved_envs: [[]],
+      }) as never,
+    )
+    vi.spyOn(api, 'mcpGatewayServers').mockResolvedValue({ servers: [server] } as never)
+
+    mount()
+    const summary = await screen.findByText('Approved before')
+    const detailsEl = summary.closest('details') as HTMLDetailsElement
+    expect(detailsEl).not.toHaveAttribute('open')
+
+    // Open the details — the before command becomes reachable.
+    detailsEl.open = true
+    expect(detailsEl).toHaveAttribute('open')
+    expect(screen.getByText('alpha-mcp@2')).toBeTruthy()
+  })
+
+  it('keeps the Would-run-now heading and current command directly visible without opening', async () => {
+    vi.spyOn(api, 'mcpGatewayStatus').mockResolvedValue(
+      changed({
+        approved_commands: [['npx', '-y', 'alpha-mcp@2']],
+        approved_envs: [[]],
+      }) as never,
+    )
+    vi.spyOn(api, 'mcpGatewayServers').mockResolvedValue({ servers: [server] } as never)
+
+    mount()
+    await screen.findByText('Approved before')
+    // The details is closed; the command to approve is still directly visible.
     expect(screen.getByText('Would run now')).toBeTruthy()
     expect(screen.getByText('alpha-mcp@3')).toBeTruthy()
-    // The env belongs to the launch it was recorded with: the approved one had
-    // none, so only the current launch shows one.
+    expect(screen.getByRole('button', { name: 'Approve the command alpha-mcp will run' })).toBeTruthy()
+    // The env belongs to the current launch only.
     expect(screen.getAllByText('Environment')).toHaveLength(1)
     expect(screen.queryByText(/was not recorded/)).toBeNull()
   })
 
-  it('says the earlier command was not recorded rather than showing an empty one', async () => {
+  it('says the earlier command was not recorded rather than showing an empty collapsed section', async () => {
     // An approval written before the record kept its content. An empty
     // before-state would read as "you approved nothing", which is a different
-    // and false claim.
+    // and false claim. When there is nothing to show, the paragraph stays
+    // inline (not collapsed) so the operator is not invited to expand nothing.
     vi.spyOn(api, 'mcpGatewayStatus').mockResolvedValue(changed() as never)
     vi.spyOn(api, 'mcpGatewayServers').mockResolvedValue({ servers: [server] } as never)
 
@@ -622,6 +674,8 @@ describe('McpManagement changed-command comparison', () => {
       screen.getByText('The command you approved earlier was not recorded, so there is nothing to compare.'),
     ).toBeTruthy()
     expect(screen.getByText('alpha-mcp@3')).toBeTruthy()
+    // No details element when there is nothing to collapse.
+    expect(screen.queryByText('Approved before')?.closest('details')).toBeNull()
   })
 
   it('puts the decision in a full-width sub-row, not the state column', async () => {
@@ -636,5 +690,70 @@ describe('McpManagement changed-command comparison', () => {
     expect(cell?.getAttribute('colspan')).toBe('4')
     // The pill stays where a column value belongs.
     expect(screen.getByText('command changed', { selector: 'span' }).closest('td')).not.toBe(cell)
+  })
+})
+
+describe('McpManagement launch panels wrap long values', () => {
+  // happy-dom computes no layout, so this pins the class contract the real-browser
+  // measurement depends on. `break-words` alone keeps an element's minimum width
+  // at its longest unbreakable run, and inside the servers table that run widens
+  // the table past its card, which clips it; `[overflow-wrap:anywhere]` is what
+  // lets the run wrap.
+  const LONG = Array.from({ length: 30 }, (_, i) => `/opt/demo/skills/pkg${i}/skills`).join(',')
+  const WRAP = '[overflow-wrap:anywhere]'
+
+  const expectWrapping = (items: HTMLElement[]) => {
+    expect(items.length).toBeGreaterThan(0)
+    for (const item of items) expect(item.className).toContain(WRAP)
+  }
+
+  it('wraps every chip, environment entry and the Declared in line of a refused row', async () => {
+    vi.spyOn(api, 'mcpGatewayStatus').mockResolvedValue(
+      status({
+        launch_refused: {
+          'alpha-mcp': {
+            reason: 'changed_needs_reapproval',
+            commands: [['/opt/demo/bin/demo-mcp', '--skill-paths', LONG]],
+            envs: [[`DEMO_PATHS=${LONG}`]],
+            complete: true,
+            expected_launch: 'a:b',
+          },
+        },
+      }) as never,
+    )
+    const agents = Array.from({ length: 12 }, (_, i) => `agent_${'x'.repeat(40)}_${i}`)
+    vi.spyOn(api, 'mcpGatewayServers').mockResolvedValue({
+      servers: [{ ...server, agents }],
+    } as never)
+
+    mount()
+    const command = await screen.findByRole('list', { name: 'Command' })
+    const chips = within(command).getAllByRole('listitem')
+    // The text of each chip is the argument exactly; wrapping changes no text.
+    expect(chips.map(chip => chip.textContent)).toEqual(['/opt/demo/bin/demo-mcp', '--skill-paths', LONG])
+    expectWrapping(chips)
+    expectWrapping(within(screen.getAllByRole('list', { name: 'Environment' })[0]).getAllByRole('listitem'))
+    const declared = screen.getByText(/^Declared in the config of:/)
+    expect(declared.textContent).toBe(`Declared in the config of: ${agents.join(', ')}.`)
+    expect(declared.className).toContain(WRAP)
+  })
+
+  it('wraps every chip and environment entry of the review a switch opens', async () => {
+    vi.spyOn(api, 'mcpGatewayStatus').mockResolvedValue(
+      status({ stub: [], stub_count: 0, enabled: false }) as never,
+    )
+    vi.spyOn(api, 'mcpGatewayServers').mockResolvedValue({ servers: [stubbable] } as never)
+    vi.spyOn(api, 'mcpGatewayLaunchPreview').mockResolvedValue(
+      preview({ commands: [['/opt/demo/bin/demo-mcp', LONG]], envs: [[`DEMO_PATHS=${LONG}`]] }) as never,
+    )
+
+    mount()
+    ;(await screen.findByRole('switch', { name: 'Put a stub in front of alpha-mcp' })).click()
+
+    const panel = await screen.findByRole('group', { name: 'Check what alpha-mcp will run' })
+    const chips = within(within(panel).getByRole('list', { name: 'Command' })).getAllByRole('listitem')
+    expect(chips.map(chip => chip.textContent)).toEqual(['/opt/demo/bin/demo-mcp', LONG])
+    expectWrapping(chips)
+    expectWrapping(within(within(panel).getByRole('list', { name: 'Environment' })).getAllByRole('listitem'))
   })
 })

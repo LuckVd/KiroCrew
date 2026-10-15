@@ -65,11 +65,15 @@ export function LaunchLines({ launches }: { launches: { argv: string[]; env: str
             aria-label={i18nT('pages.mcpManagement.approval_command')}
             className="mt-0.5 flex flex-wrap gap-1"
           >
+            {/* `anywhere`, not just `break-words`: only `anywhere` lowers the
+                chip's minimum width, so one argument with no break point (a
+                comma-joined path list) wraps inside its chip instead of
+                widening the servers table past its card, which clips it. */}
             {launch.argv.map((argument, argumentIndex) => (
               <code
                 key={argumentIndex}
                 role="listitem"
-                className="break-words rounded border border-[var(--border)] bg-[var(--surface-2,transparent)] px-1.5 py-1 font-mono text-[11px] text-[var(--text)]"
+                className="rounded border border-[var(--border)] bg-[var(--surface-2,transparent)] px-1.5 py-1 font-mono text-[11px] text-[var(--text)] [overflow-wrap:anywhere]"
               >
                 {visibleLaunchText(argument)}
               </code>
@@ -91,7 +95,7 @@ export function LaunchLines({ launches }: { launches: { argv: string[]; env: str
                   <code
                     key={entryIndex}
                     role="listitem"
-                    className="block break-words rounded border border-[var(--border)] bg-[var(--surface-2,transparent)] px-1.5 py-1 font-mono text-[11px] text-[var(--text)]"
+                    className="block rounded border border-[var(--border)] bg-[var(--surface-2,transparent)] px-1.5 py-1 font-mono text-[11px] text-[var(--text)] [overflow-wrap:anywhere]"
                   >
                     {visibleLaunchText(entry)}
                   </code>
@@ -228,11 +232,11 @@ export function LaunchReviewPanel({
 /**
  * A stubbed server the gateway will not launch until its command is approved.
  *
- * On a CHANGED command this shows both sides, because the question the operator
- * is actually being asked is what moved -- a bare "would run now" makes them
- * reconstruct the diff from memory, and the reason they are here is that it
- * changed. An older approval record kept no content, and that says so rather than
- * rendering an empty before-state as an approval of nothing.
+ * On a CHANGED command this shows the before-list collapsed inside a
+ * `<details>` element (closed by default) so the operator can reach the
+ * comparison without it pushing the command to approve off screen. The command
+ * that would run now and the Approve button remain directly visible. When the
+ * before-list was never recorded an inline note says so -- nothing to collapse.
  */
 export function RefusalPanel({
   server,
@@ -269,7 +273,7 @@ export function RefusalPanel({
       {/* Where the command comes from, so the operator can check the launch
           against its source before trusting it. */}
       {server.agents.length > 0 && (
-        <p className="text-[12.5px] leading-snug text-[var(--muted)]">
+        <p className="text-[12.5px] leading-snug text-[var(--muted)] [overflow-wrap:anywhere]">
           {i18nT('pages.mcpManagement.reapproval_declared_by', {
             agents: server.agents.join(', '),
           })}
@@ -283,18 +287,25 @@ export function RefusalPanel({
         )}
       </p>
       {changed && (
-        <div>
-          <p className="text-[11px] font-semibold uppercase tracking-wider text-[var(--muted)]">
-            {i18nT('pages.mcpManagement.approval_before_heading')}
-          </p>
-          {before.length > 0 ? (
+        before.length > 0 ? (
+          // Closed by default: the comparison is one click away but does not push
+          // the command being decided off screen on a server with many past launches.
+          <details>
+            <summary className="cursor-pointer text-[11px] font-semibold uppercase tracking-wider text-[var(--muted)]">
+              {i18nT('pages.mcpManagement.approval_before_heading')}
+            </summary>
             <LaunchLines launches={before} />
-          ) : (
+          </details>
+        ) : (
+          <div>
+            <p className="text-[11px] font-semibold uppercase tracking-wider text-[var(--muted)]">
+              {i18nT('pages.mcpManagement.approval_before_heading')}
+            </p>
             <p className="mt-1 text-[12.5px] leading-snug text-[var(--muted)]">
               {i18nT('pages.mcpManagement.approval_before_unrecorded')}
             </p>
-          )}
-        </div>
+          </div>
+        )
       )}
       <div>
         {/* Headed only when there is a before-state to tell it apart from. On a

@@ -1044,6 +1044,12 @@ export function McpManagement() {
                 {(loadingReview || reviewing || refusal) && (
                   <tr className="block border-t border-[var(--border)] md:table-row md:border-0">
                     <td colSpan={4} className="block px-3 pb-3.5 pt-0 md:table-cell md:px-4">
+                      {/* The inner block takes the panel content out of the table's
+                          intrinsic width calculation: width:0 contributes nothing to
+                          the cell's min-content, while min-width:100% fills the cell
+                          at layout time. Chips and env entries still wrap at any
+                          character via [overflow-wrap:anywhere]. */}
+                      <div className="w-0 min-w-full">
                       {loadingReview && (
                         <p role="status" className="text-[12.5px] text-[var(--muted)]">
                           {i18nT('pages.mcpManagement.launch_review_loading', { name: s.name })}
@@ -1084,6 +1090,7 @@ export function McpManagement() {
                           }}
                         />
                       )}
+                      </div>
                     </td>
                   </tr>
                 )}
