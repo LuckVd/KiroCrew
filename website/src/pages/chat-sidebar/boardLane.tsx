@@ -31,9 +31,8 @@ import { BOARD_FOLDER_BODY_CLS, FOLDER_BODY_OPEN_PADDING, PinnedSessionDivider, 
 import type { LaneRows } from './laneRows'
 import type { FolderBlocks } from './folderBlocks'
 import type { SidebarScope } from './scope'
-import { offlineMenuRow } from './offlineMenuRow'
 import OfflineMenuReason from '../../components/OfflineMenuReason'
-import { offlineProps } from '../../utils/offline'
+import { offlineMenuRow, offlineProps } from '../../utils/offline'
 
 /** The board lane renderer for one shell render. */
 export function createBoardLane(shell: SidebarScope & LaneRows & FolderBlocks) {

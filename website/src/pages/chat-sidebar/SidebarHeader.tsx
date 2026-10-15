@@ -14,9 +14,8 @@ import { uiLocation } from '../../uiLocations/uiLocation'
 import { PrivateChatRow } from './PrivateChatRow'
 import { isOpenInTabModifierClick } from './chrome'
 import type { SidebarScope } from './scope'
-import { offlineMenuRow } from './offlineMenuRow'
 import OfflineMenuReason from '../../components/OfflineMenuReason'
-import { offlineProps } from '../../utils/offline'
+import { offlineMenuRow, offlineProps } from '../../utils/offline'
 
 /** The header row. */
 export function renderSidebarHeader(shell: SidebarScope): React.ReactNode {
