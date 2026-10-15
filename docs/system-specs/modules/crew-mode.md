@@ -1782,6 +1782,24 @@ they sit at the box's bottom edge in both shapes. The glass rim is sized from
 the two-row height in both shapes (`rimSize`), so the lit edge keeps one width
 as the box changes height. The ordinary chat composer is unchanged.
 
+A turn that ends on an error (a Bedrock throttle, a dropped connection) or never
+answered gets the ordinary chat's Resume in two places: the composer's Resume
+pill, which takes the send slot while the draft is empty (the placeholder then
+reads "Last turn was interrupted -- press Resume, or just type"), and the Resume
+button on the newest error row. The DM is never the store's active slot, so
+`ChatPane` asks about its own slot (`useChatPaneContinue`):
+`selectContinuable(state, slot)` and `selectTurnInterrupted(state, slot)` read
+that slot's rows, its stream state and the slots frame's `running` / `stopping`,
+not the active mirror. Either press is `POST /api/chat/slots/{slot}/continue`,
+sent by `useContinuePress`, the same hook ChatPage uses. The gateway re-checks
+under the slot lock, and a refusal shows above the composer as "Couldn't
+continue" with the gateway's reason; a turn starting retires it. An error card
+with a remedy of its own (a context overflow, a repeated session start, a
+refused feature request, a refused app agent) withholds Resume from the composer
+too, through the one predicate `newestErrorOwnsRecovery` that ChatPage reads. A
+split-view pane of an ordinary chat is the same `ChatPane` and offers the same
+Resume.
+
 Placement is decided when the card opens, and two things revisit it. A window
 that crosses below `md` while the card holds its column re-places it as the
 floating card — kept open, not dropped — so no fixed-width aside stands on a

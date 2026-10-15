@@ -1053,8 +1053,8 @@ export default function ChatPage({ mode, embedded, embedMode, popout, noUrlSync 
   const {
     continuable, interrupted, sendUnconfirmed, continuing, handleContinue,
     openModelPickerFromError, openDefaultModelSetting, openKiroSignIn, openMemberCapabilities, openTurnLimitSetting,
-    featureRequestRefused, sessionStartRepeated, contextOverflowed,
-    freshSession, handleFreshSession, appAgentRefused,
+    cardOwnsRecovery,
+    freshSession, handleFreshSession,
   } = useTurnRecovery({
     activeSlot,
     slotRunning,
@@ -2440,21 +2440,17 @@ export default function ChatPage({ mode, embedded, embedMode, popout, noUrlSync 
                  hole needs a persisted turn-in-flight marker (backend), not a
                  louder button here.
 
-                 `featureRequestRefused` is the one case where the card and the
-                 composer would otherwise disagree (#13342): the newest row is
-                 the plan's refusal of a feature request, the card has withheld
-                 Resume because a retry replays that rejection and offered the
-                 issue form instead, and a composer beneath it saying "press
-                 Resume" would argue with the card. The composer falls back to
-                 the ordinary Send button; typing still works.
-                 `sessionStartRepeated` is the same rule for a session start
-                 that failed twice in a row: the card names the remedy and
-                 withholds Resume, so the composer falls back to Send.
-                 `contextOverflowed` is the same rule for a conversation too
-                 big for the model: Resume re-sends it, the card offers a fresh
-                 session instead. `appAgentRefused` is the same rule for a
-                 refused app-owned agent turn. */
-              continuable={continuable && interrupted && !featureRequestRefused && !sessionStartRepeated && !contextOverflowed && !appAgentRefused}
+                 `cardOwnsRecovery` is the case where the card and the composer
+                 would otherwise disagree (#13342): the newest row is one whose
+                 card has withheld Resume because a retry replays the
+                 rejection, and offers a remedy of its own instead -- the issue
+                 form for a refused feature request, the restart hint for a
+                 session start that failed twice, a fresh session for a
+                 conversation too big for the model, or a refused app-owned
+                 agent turn. A composer beneath it saying "press Resume" would
+                 argue with the card, so it falls back to the ordinary Send
+                 button; typing still works. */
+              continuable={continuable && interrupted && !cardOwnsRecovery}
               continueIsRecovery={interrupted}
               onContinue={handleContinue}
               continuing={continuing}
