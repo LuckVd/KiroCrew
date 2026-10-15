@@ -31,7 +31,10 @@ launch's values silently instead of surfacing as a refusal.
 Every writer publishes the store by rename, so
 the seal is its DIRECTORY: the file-tool gate denies writes under
 `mcp-launch-approvals/`, and the OS sandbox mounts that precreated directory
-read-only with a strict no-symlink check. Empty and absent forms both approve
+read-only with a strict no-symlink check. The first writer creates that
+directory itself, `0700` under any umask (`owner_only_files.mkdirs_owner_only`),
+so on a host that has not spawned a sandboxed process yet the store does not
+land in a umask-default `0755` directory. Empty and absent forms both approve
 nothing. A refusal displays each command with its redacted,
 bounded declared environment. Every identity serialized into `expected_launch`
 has exactly one displayed command and one displayed environment, so the operator
