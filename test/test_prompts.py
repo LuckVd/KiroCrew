@@ -1224,9 +1224,9 @@ class TestPromptExpansionStaysOffTheEventLoop:
         s, sl = _ss()
         real_append = sl.append
 
-        def _record_append(role, text, cls):
+        def _record_append(role, text, cls, **kw):
             append_threads.append(threading.get_ident())
-            real_append(role, text, cls)
+            real_append(role, text, cls, **kw)
 
         monkeypatch.setattr(sl, "append", _record_append)
         asyncio.run(_run_chat(s, sl, "/prompts get nonexistent"))

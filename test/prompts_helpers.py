@@ -234,9 +234,13 @@ class _Slot:
         # resolve against. "" means no project (global prompts only), matching
         # the fail-closed default of the real slot.
         self.project = project
+        # One ``meta`` per row of ``messages``, kept apart so the row tuples the
+        # prompt tests index stay three wide.
+        self.metas: list[dict | None] = []
 
-    def append(self, role, text, cls):
+    def append(self, role, text, cls, *, meta=None):
         self.messages.append((role, text, cls))
+        self.metas.append(meta)
 
 
 class _State:
