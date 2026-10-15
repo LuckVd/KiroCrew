@@ -1910,7 +1910,10 @@ paths rejected (`is_sensitive_path`); reads go through the inode-pinned
 `safe_read_file_bytes_nolink(within_root=webroot)` helper; token HMAC binds
 `slug + webroot + exp` with a per-process secret; responses carry
 `Content-Security-Policy: sandbox allow-scripts` (opaque origin even outside
-the iframe) plus `nosniff` and `no-store`. All filesystem work runs off the
+the iframe) with `default-src 'self' 'unsafe-inline' 'wasm-unsafe-eval' data:
+blob:`: no `'unsafe-eval'` (the channel injects no runtime, so nothing needs JS
+eval) but `'wasm-unsafe-eval'` so served `.wasm` can still compile, plus
+`nosniff` and `no-store`. All filesystem work runs off the
 event loop via `asyncio.to_thread`.
 
 ### Deploy Routes (`/api/deploy/*`)
