@@ -512,6 +512,83 @@ def render_package_page(
     return dashboard_frame.compose_body(html, read)
 
 
+#: What the script-grant audit calls a page that is staged and has no artifact of its own.
+#: Not a slug the store can produce, so a package of any name keeps its own audit entry.
+_STAGED: Final[str] = "(staged)"
+
+
+def verify_package_page(
+    slug: str,
+    crew: str,
+    slot: str,
+    package: Mapping[str, Any],
+) -> dict[str, Any] | None:
+    """Run an authored page once over *crew*'s current read; the result in wire form.
+
+    ``None`` when the package draws from blocks: a block layout has no script of its own,
+    so there is nothing to run. Otherwise the wire form of a
+    :class:`~kiro_crew.dashboard_verify.Verification`, which says ``passed``, ``failed``
+    with each error and where it was thrown, or ``skipped`` with the reason.
+
+    The read is the first paint's: :meth:`LivePage.arm` over the same manifest, redaction
+    and folds the tab is served from, then disarmed, so the page meets the values it will
+    really draw. *package* must be CANONICAL, like :func:`package_manifest`'s.
+
+    A page the tab would mount WITHOUT script is not run: the script-grant decision is
+    the tab's own (``member_dashboard._egress_decision``), and an owner whose egress is
+    restricted has asked that the page's script not run at all. The decision is audited
+    in both directions, like the tab's, because running the script here is the same
+    authorization. A session that is not a crewmate (*crew* is empty) has no tab and no
+    owner to ask, so its page is not run.
+
+    Blocking (a browser start, fold reads), so a route calls it through
+    ``asyncio.to_thread``. Never raises: a save must not fail because a check could not.
+    """
+    html = (package.get("view") or {}).get("html")
+    if not isinstance(html, str) or not html:
+        return None
+    # Deferred: this module is imported before the socket binds and must not pull in
+    # the browser runner, and `member_dashboard` imports this module (a cycle).
+    from kiro_crew import dashboard_verify
+    from kiro_crew.dashboard.handlers import member_dashboard
+
+    def skipped(reason: str) -> dict[str, Any]:
+        return dashboard_verify.Verification(dashboard_verify.STATUS_SKIPPED, reason=reason).wire()
+
+    if not crew:
+        return skipped(
+            "only a crewmate's own page is run, over that crewmate's data, and this "
+            "session is not a crewmate"
+        )
+    try:
+        key = member_dashboard.governance_session_key(slot)
+        decision = member_dashboard._egress_decision(crew, key)
+        member_dashboard._audit_page_script_grant(
+            member=crew, package_slug=_STAGED, version=0, session_key=key, decision=decision
+        )
+        if not decision.granted:
+            return skipped(
+                "the page is shown without script under this crewmate's network policy, so "
+                "its script never runs and there is nothing to check"
+            )
+        page = LivePage(
+            slug,
+            slot,
+            package,
+            lambda _frame: None,
+            session_unit=member_dashboard._newest_unit(slot),
+            redact=member_dashboard._page_safe,
+        )
+        try:
+            read = page.arm()
+        finally:
+            page.disarm()
+        return dashboard_verify.verify_page(html, read).wire()
+    except Exception:
+        logger.warning("dashboard: the page for %r could not be checked", slug, exc_info=True)
+        return skipped("this crewmate's current data could not be read, so the page was not run")
+
+
 def writing_caller(request: Any) -> tuple[str, str]:
     """``(crew, slot)`` this request writes as, each ``""`` when it cannot be shown.
 

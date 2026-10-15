@@ -251,7 +251,16 @@ def _tool_definitions() -> list[dict[str, Any]]:
                 "person IN WORDS -- the fields it holds and the blocks that lay "
                 "them out -- and do not offer a link to open: there is none, and "
                 "the tab turns that refusal into a load error. A later change "
-                "lifts both refusals together. The staged "
+                "lifts both refusals together. A page you write as `view.html` is "
+                "RUN once by the gateway over your crewmate's current data, which "
+                "you cannot see from here, and the reply carries a `verification` "
+                "block: `passed`, `failed` with each script error and the "
+                "`view.html` line and column it was thrown at, or `skipped` with "
+                "the reason. Fix a failed page and save again BEFORE you describe "
+                "it to the person. The run is offline: a library the page loads "
+                "from the CDN allowlist is not fetched, and a page whose script "
+                "stops at that library's name is `skipped`, not `failed`. The "
+                "save waits for the run, usually about a second. The staged "
                 "page expires, and a stale one has to be saved again. Two things "
                 "still belong to the "
                 "template path -- dashboard_fields lists the TEMPLATE page's "
@@ -580,7 +589,9 @@ def _call_tool_inner(name: str, args: dict[str, Any]) -> str:
             # from. Shortened to a generic failure it would cost a cycle and teach
             # nothing.
             return redact(f"Error: {api_err}")
-        return redact(_render_staged(d.get("staged") or {}, str(d.get("next") or "")))
+        return redact(
+            _render_staged(d.get("staged") or {}, str(d.get("next") or ""), d.get("verification"))
+        )
 
     if name == "dashboard_templates":
         query = args.get("query")
@@ -669,7 +680,59 @@ def _guide_tail(d: dict[str, Any]) -> str:
     return f"\n\n{block}" if isinstance(block, str) and block else ""
 
 
-def _render_staged(staged: dict[str, Any], note: str) -> str:
+_ERROR_LABELS = {
+    "rejection": "unhandled promise rejection: ",
+    "csp": "refused by the frame's policy: ",
+}
+
+
+def _render_verification(verification: Any) -> list[str]:
+    """The ``verification`` block of a save reply, as lines for the agent.
+
+    Leads with the verdict, because the verdict decides what the agent does next: a
+    ``failed`` page is fixed and saved again before anyone is told about it. Each error
+    carries where it was thrown, as a position in the agent's own ``view.html``, which is
+    the one thing it cannot find out from its own session.
+    """
+    if not isinstance(verification, dict):
+        return []
+    status = verification.get("status")
+    if status == "passed":
+        lines = [
+            "verification: passed -- the page ran once over your crewmate's current data "
+            "and raised no script errors."
+        ]
+    elif status == "skipped":
+        lines = [
+            f"verification: skipped -- {verification.get('reason') or 'the check did not run'}. "
+            "The page was not verified: a script error in it may still be there."
+        ]
+    elif status == "failed":
+        errors = [e for e in verification.get("errors") or [] if isinstance(e, dict)]
+        hidden = int(verification.get("omitted") or 0)
+        lines = [
+            "verification: failed -- the page ran once over your crewmate's current data "
+            f"and raised {len(errors) + hidden} error(s). Fix them and call dashboard_save "
+            "again before you describe the page to the person."
+        ]
+        for number, error in enumerate(errors, start=1):
+            where = ""
+            if error.get("line") is not None:
+                where = f" (view.html line {error['line']}"
+                if error.get("column") is not None:
+                    where += f", column {error['column']}"
+                where += ")"
+            label = _ERROR_LABELS.get(str(error.get("kind")), "")
+            lines.append(f"  {number}. {label}{error.get('message')}{where}")
+        if hidden:
+            lines.append(f"  ... and {hidden} more.")
+    else:
+        return []
+    lines.extend(f"  note: {note}" for note in verification.get("notes") or [])
+    return lines
+
+
+def _render_staged(staged: dict[str, Any], note: str, verification: Any = None) -> str:
     """What is STAGED, and what an agent may do with it on this base.
 
     NO LINK, because there is none to give: the save reply carries no
@@ -688,6 +751,10 @@ def _render_staged(staged: dict[str, Any], note: str) -> str:
         f"{staged.get('blocks')} block(s). Nothing on your crewmate's Dashboard has "
         "changed yet, and nothing is stored."
     ]
+    checked = _render_verification(verification)
+    if checked:
+        lines.append("")
+        lines.extend(checked)
     if note:
         lines.append("")
         lines.append(f"Next: {note}")

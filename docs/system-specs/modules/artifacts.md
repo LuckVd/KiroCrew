@@ -1304,6 +1304,29 @@ redactor would mask is refused too, before anything is written — every one of
 those names is a join key, so a masked name would break the page rather than
 protect it.
 
+The save then runs a page written as `view.html` once, offline, over the crewmate's
+current read (`dashboard_verify.verify_page`, reached through
+`member_dashboard_fields.verify_package_page`) and returns the outcome as the reply's
+`verification` block: `passed`, `failed` with each error's message and its line and
+column in the agent's own `view.html`, or `skipped` with the reason. The document is
+`dashboard_frame.compose` over the read `LivePage.arm` builds for the tab, so the page
+meets the values, redaction and policy it will really get. It runs in a Chrome or
+Chromium an administrator installed on the gateway host, started by a system Python
+(each root-owned, not a link, not writable by the gateway's account: a program the agent
+could write would let the agent choose what the gateway runs) over a DevTools pipe, with
+the browser's own sandbox on, a throwaway profile and a scrubbed environment. It runs on
+Linux only, in the profile directory as its working directory: macOS keeps apps in a
+directory every administrator account can write, which the same rule refuses, and any
+host that is not Linux answers `skipped`. The
+script-grant decision is audited like the tab's, in both directions. Nothing leaves the machine: the page's policy, a request
+filter that answers only the page, no name resolution, a proxy at a closed port and no
+WebRTC, so a library the page loads from the CDN allowlist is not fetched, and a page
+whose script stops at that library's undefined name is `skipped` and not `failed`
+(any other error is still `failed`). A page the tab would mount without script is not
+run. One check runs at a time: a save that arrives during another waits up to three
+seconds and is then `skipped`. A block layout has no script and returns
+`verification: null`. The page stays staged whatever the run finds.
+
 **NOTHING IS STORED BY THE SAVE.** It stages the page. The package runs the
 store's own write gate (`canonical_package_content`) at STAGING, so a layout that
 could never be stored is refused while the agent is still composing rather than

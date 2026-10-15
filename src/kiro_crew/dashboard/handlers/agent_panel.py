@@ -2124,12 +2124,15 @@ async def api_dashboard_save(request: web.Request) -> web.Response:
 
     No store is opened and no binding is scanned. Both belong to the apply, which
     is the call that writes.
+
+    A page written as ``view.html`` is also run once over the crewmate's data and the
+    reply carries a ``verification`` block (``dashboard_verify``); it stays staged.
     """
     resolved, refusal = await _resolve_dashboard_caller(request, "dashboard_save")
     if refusal is not None:
         return refusal
     assert resolved is not None
-    slug, _crew_name, _slot = resolved
+    slug, crew_name, slot = resolved
     body = await _instance_body(request)
     if isinstance(body, web.Response):
         return body
@@ -2175,19 +2178,25 @@ async def api_dashboard_save(request: web.Request) -> web.Response:
             status=400,
         )
 
+    # Deferred with `instance_store`: the boot path loads neither until a page is saved.
+    from kiro_crew.dashboard.handlers import member_dashboard_fields
     from kiro_crew.dashboard_templates import instance as instance_store
 
-    def _stage() -> dict[str, Any]:
+    def _stage() -> tuple[dict[str, Any], dict[str, Any]]:
         # THE STORE'S OWN WRITE GATE, run here and run on a thread: it parses,
         # validates against the closed catalogs and re-serializes, and the result
         # is the exact byte string an apply will hand the store. Staging the
         # caller's bytes instead would mean the page a person looked at and the
         # page that gets committed are two different strings.
         content = _dashboard.canonical_package_content(json.dumps(package, ensure_ascii=False))
-        return instance_store.stage_package_preview(slug, content=content).wire()
+        # Those bytes parsed, for the page check below. Read on this thread and before
+        # anything is staged: a decode and validation of an agent-sized package is not
+        # work for the event loop, and a failure here must leave nothing staged.
+        parsed = _dashboard.parse_package(content)
+        return instance_store.stage_package_preview(slug, content=content).wire(), parsed
 
     try:
-        staged = await asyncio.to_thread(_stage)
+        staged, staged_package = await asyncio.to_thread(_stage)
     except ArtifactValidationError as exc:
         # WHOLE, like a refused agentic write. The package refusal names the key
         # path, what was wrong with it and -- for a closed catalog -- the values
@@ -2199,6 +2208,11 @@ async def api_dashboard_save(request: web.Request) -> web.Response:
         return web.json_response(
             {"error": f"the page could not be staged: {exc}", "code": "save_failed"}, status=503
         )
+
+    # After staging, so a page that throws is still staged and one more save fixes it.
+    verification = await asyncio.to_thread(
+        member_dashboard_fields.verify_package_page, slug, crew_name, slot, staged_package
+    )
 
     # NO BROADCAST, and now for a second reason beyond the one below: nothing a
     # reader can see has changed. The live page is still the live page, and a frame
@@ -2214,6 +2228,8 @@ async def api_dashboard_save(request: web.Request) -> web.Response:
             # here would tell the person their dashboard had changed, and the next
             # thing it has to do is ask them.
             "staged": staged,
+            # What the page raised over the real record; None for a block layout.
+            "verification": verification,
             # THE ONE INSTRUCTION, in the response rather than only in the prompt.
             # An agent that composed a page has to be told what it can do with it,
             # and on this base the answer is "describe it", not "open a link":

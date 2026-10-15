@@ -30,7 +30,19 @@ stage -> preview -> a person approves -> apply
    and it is also the list the controller pushes, so a binding the model does
    not declare is refused at the save and told to you by name. Staging records
    the page and nothing else: it does not go live, it cuts no version, and the
-   controller pushes it no values.
+   controller pushes it no values. The save then RUNS the page once, offline,
+   over your crewmate's current data, which you cannot see from your own session,
+   and its reply carries a `verification` block: `passed`, `failed` with each
+   script error and the `view.html` line and column it was thrown at, or
+   `skipped` with the reason (no system-installed browser on the machine, for one). Fix a failed
+   page and save again before you tell the person about it. The run has no
+   network, so a library the page loads from the CDN allowlist is not fetched.
+   A page whose script stops at that library's name (`Chart is not defined`)
+   comes back `skipped`, not `failed`, because the rest of that script did not
+   run; any other error is still `failed`. It checks the first paint only: a
+   refill that arrives later is not exercised. The save waits for the run, which
+   usually takes about a second and at most about twenty-five. If another page is
+   being checked at that moment, this one is `skipped`.
 2. **Preview.** Show the staged page to the person who will decide on it. A
    preview records nothing, which is what makes "show me" free when the answer
    is no.
