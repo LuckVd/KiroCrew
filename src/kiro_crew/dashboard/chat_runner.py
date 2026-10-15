@@ -17739,9 +17739,9 @@ async def _run_chat(
                 # contradicting both the notice ("continuing once") and the
                 # side-effect boundary this branch protects.
                 _max_continues = _empty_max_auto_continues()
-                if _empty_activity.productive:
+                if _empty_activity.productive or slot._empty_episode_productive:
                     slot._empty_response_retries = max(slot._empty_response_retries + 1, 2)
-                    # This turn's tools landed; later turns of the episode must know.
+                    # The episode's work landed; its later turns must know.
                     slot._empty_episode_productive = True
                 else:
                     slot._empty_response_retries += 1
@@ -17751,13 +17751,15 @@ async def _run_chat(
                 # advancing, not looping.
                 _continue_no = max(slot._empty_response_retries - 1, 1)
                 _empty_rung = EMPTY_RUNG_CONTINUE
-                if _empty_activity.productive:
+                if _empty_activity.productive or slot._empty_episode_productive:
                     # Same rung, different words, because the words are read by
                     # the MODEL and by the user. "returned nothing twice" is
                     # false for a turn that streamed an answer or ran tools, and
                     # telling a model its completed work produced no output is an
                     # invitation to redo it — the side-effect duplication this
-                    # path exists to avoid.
+                    # path exists to avoid. The split is per episode, like the
+                    # give-up rung's: a continuation that streamed nothing still
+                    # follows a turn that did work.
                     slot.append(
                         "notice",
                         (
