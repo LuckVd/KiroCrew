@@ -11,6 +11,8 @@ from typing import TYPE_CHECKING, Any
 from aiohttp import web
 
 if TYPE_CHECKING:
+    from collections.abc import Iterable
+
     from kiro_crew.dashboard.chat_handlers import (
         _TEARDOWN_INCOMPLETE_WARNING,
         JEV_ROUTE_MODEL,
@@ -36,7 +38,6 @@ if TYPE_CHECKING:
         capabilities_of,
         deny_app_slot_access,
         effective_session_key,
-        is_claude_code,
         is_owner_dashboard_request,
         logger,
         model_registry,
@@ -50,38 +51,71 @@ if TYPE_CHECKING:
     )
 
 
-def _model_rejected_reason(model_name: str, provider: str | None = None) -> str | None:
-    """Reason to reject ``model_name`` for the active provider, or None to allow.
+def _model_rejected_reason(
+    model_name: str,
+    backend: str | None = None,
+    *,
+    session_keys: Iterable[str | None] | None = None,
+) -> str | None:
+    """Reason to reject ``model_name`` for the harness that will run it, or None.
 
     The dashboard model dropdown falls back to canonical registry keys (e.g.
     ``fable-5-1m``) when /api/models is unavailable (gateway restart / kiro-cli
-    cold-start timeout). Those keys are DISPLAY identifiers the ACP CLI rejects
-    as model ids (-32603 "model not available") — persisting one into
-    ``slot.model`` breaks the next turn. This guard is defense-in-depth behind
-    the frontend's auto-only fallback: a stale client, a direct API
-    call, or the openai-compat path can never persist a canonical key. ``auto``
-    and ``""`` (provider default) always pass; for the ``claude_code`` provider
-    canonical keys ARE the wire format, so they pass there too.
+    cold-start timeout). On a harness whose model-id namespace has no id for
+    such a key it is a DISPLAY identifier (kiro-cli answers -32603 "model not
+    available"), and persisting one into ``slot.model`` breaks the next turn.
+    This guard is defense-in-depth behind the frontend's auto-only fallback: a
+    stale client, a direct API call, or the openai-compat path can never persist
+    one. ``auto`` and ``""`` (provider default) always pass.
 
-    *provider* lets a caller that has already loaded the config supply it, so
-    this adds no read of its own: ``KiroCrewConfig.load()`` deep-copies the
+    Whether a canonical key is display-only is a property of the backend's
+    MODEL-ID NAMESPACE (``capabilities_for(backend).model_id_namespace``), the
+    same field :func:`_wire_model_id` reads to translate it: on a provider
+    namespace whose registry row carries an id (``claude_code`` maps
+    ``fable-5-1m`` to its Bedrock id) the key is translated there, so it passes
+    here. ``agent.provider`` cannot answer this -- its only value is ``acp`` for
+    every harness.
+
+    *backend* lets a caller that already resolved the harness supply it, so this
+    adds no config read of its own: ``KiroCrewConfig.load()`` deep-copies the
     validated dict even on a cache hit, and on a miss it reads and validates
-    files — work that must not land on the event loop under a held lock. Omit it
-    and the provider is resolved here, preserving the original behaviour.
+    files. Omit it and the harness is resolved from config -- only for a
+    canonical key, the one value whose answer depends on it. *session_keys*
+    then names the sessions the pick lands on, each routed through the same
+    member-aware gate the provider factory uses; the key must pass on every one
+    of them. With neither, the configured default harness decides.
     """
     if not model_name or model_name == "auto":
         return None
-    if provider is None:
-        try:
-            provider = KiroCrewConfig.load().agent.provider
-        except Exception:  # pragma: no cover - config load is resilient
-            provider = ""
-    if is_claude_code(provider):
+    if not model_registry.is_canonical_key(model_name):
         return None
-    if model_registry.is_canonical_key(model_name):
+    if backend is not None:
+        backends: list[str] = [backend]
+    else:
+        from kiro_crew.members import select_provider_backend
+
+        try:
+            agent = KiroCrewConfig.load().agent
+            default_backend = agent.acp_backend or ""
+            member_backend = agent.member_acp_backend or ""
+        except Exception:  # pragma: no cover - config load is resilient
+            default_backend, member_backend = "", ""
+        keys = list(session_keys or ())
+        backends = (
+            [select_provider_backend(k, member_backend, default_backend) for k in keys]
+            if keys
+            else [default_backend]
+        )
+    from kiro_crew.agent_sdk.capabilities import capabilities_for
+
+    entry = model_registry.get_entry(model_name) or {}
+    for name in dict.fromkeys(backends):
+        namespace = capabilities_for(name).model_id_namespace
+        if namespace != MODEL_NAMESPACE_ACP and entry.get("providers", {}).get(namespace):
+            continue
         return (
             f"{model_name!r} is a display-only model identifier the "
-            f"{provider or 'active'} provider does not accept; "
+            f"{name or 'kiro'} backend does not accept; "
             f"select a listed model or 'auto'."
         )
     return None
@@ -316,7 +350,8 @@ async def api_chat_slot_model(request: web.Request) -> web.Response:
         )
         return _owner_denial_response(request, "arming Jev routing is owner-only")
     model_name = "auto" if jev_route else _normalize_model(body.get("model", ""))
-    reason = _model_rejected_reason(model_name)
+    # Judged on THIS slot's harness: a member DM runs on agent.member_acp_backend.
+    reason = _model_rejected_reason(model_name, session_keys=(effective_session_key(slot),))
     if reason:
         logger.warning("Slot %s model rejected: %s", name, reason)
         return web.json_response({"error": reason}, status=400)
@@ -757,7 +792,10 @@ async def api_chat_slots_model(request: web.Request) -> web.Response:
         return body_err
     assert body is not None  # read_bounded_json returns (dict, None) on success
     model_name = _normalize_model(body.get("model", ""))
-    reason = _model_rejected_reason(model_name)
+    # One pick lands on every slot, so it must pass on every slot's harness.
+    reason = _model_rejected_reason(
+        model_name, session_keys=[effective_session_key(s) for s in list(state._slots.values())]
+    )
     if reason:
         return web.json_response({"error": reason}, status=400)
     skip_running = body.get("skip_running", True)

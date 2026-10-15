@@ -2922,17 +2922,18 @@ def _validate_role_model(
     No advertised set => accept (entitlement unknowable; don't accuse on no
     evidence), matching that predicate's own conservative default.
 
-    *provider* is forwarded to :func:`_model_rejected_reason` so a caller holding
-    an already-loaded config does not pay a second synchronous config read; the
-    remaining work is in-memory. *backend* scopes any live catalog to the harness
-    the edited agent will use. Omit either when that identity is unavailable.
+    *provider* is the ``validate_fn`` hooks' shared third argument and is not
+    read here. *backend* is the harness the edited agent will use: it decides
+    whether a canonical key is display-only (:func:`_model_rejected_reason`,
+    which then pays no config read of its own) and scopes any live catalog.
+    Omit it when that identity is unavailable.
     """
     if not value or value == "auto":
         return None
     from kiro_crew.acp.client import model_is_unusable
     from kiro_crew.dashboard.chat_handlers import _model_rejected_reason
 
-    reason = _model_rejected_reason(value, provider=provider)
+    reason = _model_rejected_reason(value, backend)
     if reason:
         return reason
     advertised = (

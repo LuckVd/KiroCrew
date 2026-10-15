@@ -203,18 +203,18 @@ def test_a_turn_during_a_picker_switch_keeps_the_pick_pending(tmp_path):
     assert target.model == out["model"]
 
 
-def test_the_model_check_uses_the_targets_provider_seam(tmp_path, monkeypatch):
-    """A Claude-backend target takes canonical keys as wire ids, so the check
-    must not reject them under a global ACP provider."""
+def test_the_model_check_uses_the_targets_backend(tmp_path, monkeypatch):
+    """A Claude-backend target takes canonical keys as wire ids, so the check is
+    judged on the TARGET's backend, not the global ACP provider."""
     from types import SimpleNamespace
 
     from kiro_crew.dashboard import chat_handlers
 
     seen: list[str | None] = []
 
-    def _reason(_model, provider=None):
-        seen.append(provider)
-        return None if provider == "claude-seam" else "rejected"
+    def _reason(_model, backend=None):
+        seen.append(backend)
+        return None if backend == "claude-backend" else "rejected"
 
     monkeypatch.setattr(chat_handlers, "_model_rejected_reason", _reason)
     monkeypatch.setattr(sc, "is_claude_code", lambda p: p == "claude-seam")
@@ -230,7 +230,7 @@ def test_the_model_check_uses_the_targets_provider_seam(tmp_path, monkeypatch):
 
     out = _set_model(state, caller, "chat-2", "fable-5-1m")
 
-    assert seen == ["claude-seam"]
+    assert seen == ["claude-backend"]
     assert out["model"] == "fable-5-1m"
 
 

@@ -421,12 +421,20 @@ its own once the cache refreshes with a list that carries it.
   (its picker lists the same names) without the entitlement check. `decisions.nudge_wake.llm_model` keeps the bare-id
   grammar, because the decision gate scrubs any model `is_model_id` refuses.
 - Backends with `resolves_model_from_advertised_list` use their own advertised
-  model namespace. Claude retains its registry display-name reconciliation.
-  Other advertised-selection backends use their live session's model ids, then
-  their persisted namespace cache, preserving exact wire ids (including Pi
-  provider/model ids) without substituting the Kiro CLI catalog. A cold cache
-  offers `auto` and a scoped configured default until that backend advertises
-  its choices.
+  model namespace: their live session's model ids, then their persisted
+  namespace cache (`_advertised_cc_models`), so "no session is up" is never read
+  as "nothing advertised". Claude retains its registry display-name
+  reconciliation over that list, and shows the registry unfiltered only when
+  the cache is empty too. Other advertised-selection backends preserve exact
+  wire ids (including Pi provider/model ids) without substituting the Kiro CLI
+  catalog. A cold cache offers `auto` and a scoped configured default until
+  that backend advertises its choices.
+- Whether a canonical registry key is a display-only spelling is the backend's
+  `model_id_namespace` question, the same field `_wire_model_id` translates
+  through: a provider namespace whose registry row carries an id for the key
+  accepts it, and the `acp` namespace (kiro, KAS) refuses it
+  (`_model_rejected_reason`). A pick is judged on the harness of the slot it
+  lands on, so a member DM is judged on `agent.member_acp_backend`.
 - The chat composer reads `GET /api/chat/slots/{slot}/selection-capabilities` for
   the active ACP session's backend, effort support, and ordered effort levels. A
   missing session answers `known: false`; the composer then uses its existing

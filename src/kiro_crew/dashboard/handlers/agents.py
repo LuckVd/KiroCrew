@@ -528,9 +528,14 @@ def _advertised_cc_models(request: web.Request, namespace: str) -> list[dict]:
     """Map a live provider's advertised models to the API shape, per namespace.
 
     ``model_name`` is the advertised id verbatim: it is the wire value sent back
-    on selection, and the adapter only accepts ids it advertised. Returns ``[]``
-    when no session of that namespace has initialized or the backend advertised
-    nothing.
+    on selection, and the adapter only accepts ids it advertised.
+
+    A live session wins. With none live (a cold dashboard, a gateway restart, a
+    cold-start timeout) the list is the namespace's cross-session snapshot,
+    ``model_registry.advertised_models``, which every advertising session writes:
+    "no session is up" is not "nothing is advertised", and an id the catalog does
+    not list reaches a picker ONLY through this list. Returns ``[]`` only when the
+    snapshot is empty too (a genuine first run) or the backend advertised nothing.
 
     Two filters, and both are load-bearing. The CAPABILITY gate
     (``SessionCapabilities.resolves_model_from_advertised_list``) is the property
@@ -549,7 +554,7 @@ def _advertised_cc_models(request: web.Request, namespace: str) -> list[dict]:
         state: DashboardState = request.app["state"]
         providers = state.sessions.active_providers()
     except (KeyError, AttributeError):
-        return []
+        providers = []
     for provider in reversed(providers):
         # Read each field straight off ``capabilities_of(provider)``: binding it to a
         # local would be a second spelling of the question, which the one-spelling
@@ -575,7 +580,10 @@ def _advertised_cc_models(request: web.Request, namespace: str) -> list[dict]:
                 for m in advertised
                 if m.get("modelId")
             ]
-    return []
+    return [
+        {"model_name": m, "display_name": m, "description": ""}
+        for m in model_registry.advertised_models(namespace)
+    ]
 
 
 async def _entitled_kiro_models(request: web.Request, models: list[dict]) -> list[dict]:
@@ -733,11 +741,13 @@ def _cc_models(request: web.Request, configured_default: str = "") -> list[dict]
     the registry's cleaner display names for the survivors), and advertised models
     the registry does not list are appended for forward-compat.
 
-    When NOTHING is advertised the registry is shown unfiltered. That is not a
-    preference for the unfiltered list -- an empty advertised set means
-    "no session has initialized yet", which is indistinguishable from "this account
-    gets nothing", and showing an empty picker on a cold dashboard would be worse
-    than showing a superset.
+    With no session live the advertised set is the last snapshot any session
+    wrote (:func:`_advertised_cc_models`), so a cold dashboard filters the same
+    way. Only when NOTHING was ever advertised is the registry shown unfiltered.
+    That is not a preference for the unfiltered list -- an empty set then means
+    "no session has ever initialized", which is indistinguishable from "this
+    account gets nothing", and showing an empty picker on a first run would be
+    worse than showing a superset.
 
     ``auto`` is always present and always FIRST. It is the configured default
     (``config.agent.model``) and a sentinel rather than a real model, so it is
@@ -847,9 +857,6 @@ def _advertised_backend_models(
     """
     namespace = model_registry_namespace(backend)
     advertised = _advertised_cc_models(request, namespace)
-    if not advertised:
-        cached = model_registry.advertised_models(namespace)
-        advertised = [{"model_name": m, "display_name": m, "description": ""} for m in cached]
 
     rows: list[dict] = [
         {"model_name": "auto", "display_name": "Auto", "description": "Backend default"}

@@ -3585,7 +3585,7 @@ def _model_pin_refusal(model_name: str, cfg: KiroCrewConfig) -> str | None:
     """Why ``model_name`` may not be pinned on a new session, or ``None`` to allow it.
 
     The same guard the dashboard's model picker runs (``_model_rejected_reason``),
-    against the provider from the config snapshot the create already loaded, so an
+    against the backend from the config snapshot the create already loaded, so an
     id the picker would refuse is refused here too. Length and charset are bounded
     HERE, not left to the MCP schema: ``SESSION_CREATE_SCHEMA`` runs only in
     ``mcp_dashboard``, and the HTTP route forwards the body's model string as-is,
@@ -3602,7 +3602,8 @@ def _model_pin_refusal(model_name: str, cfg: KiroCrewConfig) -> str | None:
     # module is imported by the dashboard package before chat_handlers loads.
     from kiro_crew.dashboard.chat_handlers import _model_rejected_reason
 
-    return _model_rejected_reason(model_name, provider=cfg.agent.provider or "")
+    # A created child is never a member DM, so it runs on ``agent.acp_backend``.
+    return _model_rejected_reason(model_name, cfg.agent.acp_backend or "")
 
 
 def _inherited_pin_foreign_to_child(
@@ -6005,11 +6006,7 @@ async def set_model_target(
     target_provider = (
         provider if is_claude_code(provider) else capabilities_for(backend).provider_seam
     )
-    rejected = (
-        _model_rejected_reason(model_name, provider=target_provider)
-        if model_name is not None
-        else ""
-    )
+    rejected = _model_rejected_reason(model_name, backend) if model_name is not None else ""
     if rejected:
         raise SessionControlError(rejected, code="model_rejected", status=400)
     if (
