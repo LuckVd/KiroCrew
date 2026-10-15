@@ -13,6 +13,7 @@ Identity setup mirrors the skill-trust guard tests in
 
 from __future__ import annotations
 
+import hashlib
 import json
 from types import SimpleNamespace
 from unittest.mock import AsyncMock, Mock
@@ -182,7 +183,10 @@ class TestOwnerWritePathsStillWork:
         request = _Request({"user": "owner"}, state, method="PUT", body={"content": "new"})
         response = await prompts.api_skill_detail(request)
         assert response.status == 200
-        assert json.loads(response.body) == {"ok": True}
+        assert json.loads(response.body) == {
+            "ok": True,
+            "hash": hashlib.sha256(b"new").hexdigest(),
+        }
         loader.update_skill.assert_called_once_with("demo", "new")
         assert audit.log_api_access.call_args.kwargs["outcome"] == "allowed"
         kwargs = audit.log_tool_invocation.call_args.kwargs
@@ -238,7 +242,11 @@ class TestGetStaysOpen:
         request = _Request({"user": "guest"}, state, method="GET")
         response = await prompts.api_skill_detail(request)
         assert response.status == 200
-        assert json.loads(response.body) == {"name": "demo", "content": "content"}
+        assert json.loads(response.body) == {
+            "name": "demo",
+            "content": "content",
+            "hash": hashlib.sha256(b"content").hexdigest(),
+        }
         loader.load_skill.assert_called_once_with("demo")
 
 
@@ -347,3 +355,113 @@ class TestAuditFailureNeverBreaksACommittedMutation:
         )
         response = await prompts.api_skills_create(request)
         assert response.status == 200
+
+
+class TestUpdateRefusesAStaleBase:
+    """PUT with ``base_hash`` refuses when SKILL.md changed on disk since that read.
+
+    An agent rewrites a skill file directly, with no push to the dashboard, so
+    an editor seeded before that write would silently revert it on Save. These
+    run the real loader on a temp skills dir: the refusal is about the bytes on
+    disk, so a mocked loader could not show the agent's edit surviving.
+    """
+
+    @pytest.fixture(autouse=True)
+    def _owner(self, _floor_monkeypatch):
+        _floor_monkeypatch.setattr(
+            prompts, "is_owner_dashboard_request", lambda _request: True, raising=False
+        )
+
+    @staticmethod
+    def _sha(text):
+        return hashlib.sha256(text.encode("utf-8")).hexdigest()
+
+    @staticmethod
+    def _real_state(tmp_path):
+        from kiro_crew.skills import SkillsLoader
+
+        root = tmp_path / "skills"
+        (root / "demo").mkdir(parents=True)
+        skill_md = root / "demo" / "SKILL.md"
+        skill_md.write_text("---\nname: demo\n---\nseeded body\n", encoding="utf-8")
+        loader = SkillsLoader(skills_path=root, install_builtins=False)
+        state = SimpleNamespace(owner_id="owner", context_builder=SimpleNamespace(skills=loader))
+        return state, skill_md
+
+    @pytest.mark.asyncio
+    async def test_get_returns_the_hash_of_the_content(self, audit, tmp_path):
+        state, _skill_md = self._real_state(tmp_path)
+        response = await prompts.api_skill_detail(_Request({"user": "owner"}, state, method="GET"))
+
+        assert response.status == 200
+        payload = json.loads(response.body)
+        assert payload["hash"] == self._sha(payload["content"])
+
+    @pytest.mark.asyncio
+    async def test_save_after_disk_edit_is_refused_and_keeps_the_agent_edit(self, audit, tmp_path):
+        state, skill_md = self._real_state(tmp_path)
+        seeded_hash = self._sha(skill_md.read_text(encoding="utf-8"))
+        agent_edit = "---\nname: demo\n---\nagent rewrote this\n"
+        skill_md.write_text(agent_edit, encoding="utf-8")
+
+        request = _Request(
+            {"user": "owner"},
+            state,
+            method="PUT",
+            body={"content": "---\nname: demo\n---\nuser draft\n", "base_hash": seeded_hash},
+        )
+        response = await prompts.api_skill_detail(request)
+
+        assert response.status == 409
+        payload = json.loads(response.body)
+        assert payload["code"] == "content_conflict"
+        assert "current" not in payload
+        assert skill_md.read_text(encoding="utf-8") == agent_edit
+        kwargs = audit.log_tool_invocation.call_args.kwargs
+        assert kwargs["outcome"] == "rejected"
+        assert kwargs["metadata"] == {"name": "demo", "reason": "content_conflict"}
+
+    @pytest.mark.asyncio
+    async def test_save_with_a_current_hash_writes_and_returns_the_new_hash(self, audit, tmp_path):
+        state, skill_md = self._real_state(tmp_path)
+        base_hash = self._sha(skill_md.read_text(encoding="utf-8"))
+        draft = "---\nname: demo\n---\nuser draft\n"
+
+        request = _Request(
+            {"user": "owner"}, state, method="PUT", body={"content": draft, "base_hash": base_hash}
+        )
+        response = await prompts.api_skill_detail(request)
+
+        assert response.status == 200
+        assert skill_md.read_text(encoding="utf-8") == draft
+        assert (
+            json.loads(response.body)["hash"] == hashlib.sha256(skill_md.read_bytes()).hexdigest()
+        )
+
+    @pytest.mark.asyncio
+    @pytest.mark.parametrize("bad", (3, "", "ABC", "g" * 64, "A" * 64, "a" * 63))
+    async def test_a_malformed_hash_is_a_bad_request(self, audit, bad):
+        state, loader = _state_with_loader(load_skill=Mock(), update_skill=Mock(return_value=True))
+        request = _Request(
+            {"user": "owner"}, state, method="PUT", body={"content": "x", "base_hash": bad}
+        )
+        response = await prompts.api_skill_detail(request)
+
+        assert response.status == 400
+        assert json.loads(response.body)["code"] == "base_hash_required"
+        loader.load_skill.assert_not_called()
+        loader.update_skill.assert_not_called()
+
+    @pytest.mark.asyncio
+    async def test_a_hash_against_an_unreadable_file_is_not_written(self, audit):
+        state, loader = _state_with_loader(
+            load_skill=Mock(return_value=None), update_skill=Mock(return_value=True)
+        )
+        request = _Request(
+            {"user": "owner"}, state, method="PUT", body={"content": "x", "base_hash": "0" * 64}
+        )
+        response = await prompts.api_skill_detail(request)
+
+        assert response.status == 404
+        assert json.loads(response.body) == {"error": "not found"}
+        loader.update_skill.assert_not_called()

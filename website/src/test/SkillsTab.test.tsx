@@ -75,7 +75,7 @@ function renderWithQuery() {
 
 beforeEach(() => {
   Object.values(mockApi).forEach(m => 'mockReset' in m && m.mockReset())
-  mockApi.skill.mockResolvedValue({ name: 'x', content: '---\nname: x\n---\nbody' })
+  mockApi.skill.mockResolvedValue({ name: 'x', content: '---\nname: x\n---\nbody', hash: 'h-x' })
 })
 
 describe('SkillsTab', () => {
@@ -210,7 +210,7 @@ describe('SkillsTab', () => {
     mockApi.skills.mockResolvedValue([
       { key: 'doomed', name: 'doomed', description: 'will go', source: 'kirocrew', loaded_by_agents: [] },
     ])
-    mockApi.skill.mockResolvedValue({ name: 'doomed', content: '---\nname: doomed\n---\n' })
+    mockApi.skill.mockResolvedValue({ name: 'doomed', content: '---\nname: doomed\n---\n', hash: 'h-doomed' })
     mockApi.deleteSkill.mockResolvedValue({ ok: true })
     const confirmSpy = vi.spyOn(window, 'confirm').mockReturnValue(true)
 
@@ -230,6 +230,7 @@ describe('SkillsTab', () => {
     mockApi.skill.mockResolvedValue({
       name: 'editable',
       content: '---\nname: editable\ndescription: fixme\n---\nbody text',
+      hash: 'h-editable',
     })
 
     renderWithQuery()
@@ -254,6 +255,7 @@ describe('SkillsTab', () => {
     mockApi.skill.mockResolvedValue({
       name: 'editable',
       content: '---\nname: editable\ndescription: fixme\n---\nbody text',
+      hash: 'h-editable',
     })
 
     renderWithQuery()
@@ -532,7 +534,7 @@ describe('SkillsTab update/delete failure surfacing', () => {
   }
 
   beforeEach(() => {
-    mockApi.skill.mockResolvedValue({ name: 'fragile', content: '---\nname: fragile\n---\nbody' })
+    mockApi.skill.mockResolvedValue({ name: 'fragile', content: '---\nname: fragile\n---\nbody', hash: 'h-seeded' })
   })
 
   it('surfaces an update failure next to the editor and keeps the draft', async () => {
@@ -718,6 +720,104 @@ describe('SkillsTab update/delete failure surfacing', () => {
     const notice = await screen.findByTestId('skill-update-failure')
     expect(notice.textContent).toMatch(/managed on disk/)
     expect(notice.textContent).not.toMatch(/read-only territory/)
+  })
+
+  it('Edit seeds the form from a fresh read, not the cached copy, and saves against it', async () => {
+    // The first read fills the cache; an agent then rewrites SKILL.md on disk
+    // with no push. Edit must re-read, or the form would hold the old text.
+    mockApi.skills.mockResolvedValue(SKILL)
+    mockApi.skill
+      .mockResolvedValueOnce({ name: 'fragile', content: '---\nname: fragile\n---\nold body', hash: 'h-old' })
+      .mockResolvedValue({ name: 'fragile', content: '---\nname: fragile\n---\nagent body', hash: 'h-agent' })
+    mockApi.updateSkill.mockResolvedValue({ ok: true })
+
+    await enterEditor()
+    expect(screen.getByDisplayValue('agent body')).toBeInTheDocument()
+    fireEvent.click(screen.getByText('Save'))
+    await waitFor(() => expect(mockApi.updateSkill).toHaveBeenCalledTimes(1))
+    expect(mockApi.updateSkill.mock.calls[0][2]).toBe('h-agent')
+  })
+
+  describe('a save refused because the file was edited after the form opened', () => {
+    const ON_DISK = '---\nname: fragile\n---\nagent rewrote this'
+    const conflict = () => new StubApiError(
+      409,
+      'the skill changed on disk after the edit was started',
+      JSON.stringify({ error: 'the skill changed on disk after the edit was started', code: 'content_conflict' }),
+    )
+
+    async function refuseFirstSave() {
+      mockApi.skills.mockResolvedValue(SKILL)
+      mockApi.updateSkill.mockRejectedValueOnce(conflict()).mockResolvedValue({ ok: true, hash: 'h-saved' })
+      await enterEditor()
+      // The refusal re-reads the file; from here on the read serves the agent's edit.
+      mockApi.skill.mockResolvedValue({ name: 'fragile', content: ON_DISK, hash: 'h-current' })
+      fireEvent.change(screen.getByDisplayValue('body'), { target: { value: 'my draft' } })
+      fireEvent.click(screen.getByText('Save'))
+      return screen.findByTestId('skill-disk-conflict')
+    }
+
+    it('shows the current file, keeps the draft, and blocks Save until the user picks', async () => {
+      const notice = await refuseFirstSave()
+      expect(mockApi.updateSkill.mock.calls[0][2]).toBe('h-seeded')
+      expect(notice.textContent).toMatch(/edited after you opened it/)
+      expect(within(notice).getByText('Current file')).toBeInTheDocument()
+      expect(within(notice).getByTestId('skill-disk-conflict-current').textContent).toBe(ON_DISK)
+      expect(within(notice).getByText('Discard my edits and use the current file')).toBeInTheDocument()
+      expect(within(notice).getByText('Keep my edits and replace the current file')).toBeInTheDocument()
+      // Nothing was written, so the editor and the draft stay.
+      expect(screen.getByDisplayValue('my draft')).toBeInTheDocument()
+      expect(screen.getByText('Save').closest('button')).toBeDisabled()
+      expect(screen.queryByTestId('skill-update-failure')).not.toBeInTheDocument()
+    })
+
+    it('Discard reseeds the form from the current file and saves against its hash', async () => {
+      const notice = await refuseFirstSave()
+      fireEvent.click(within(notice).getByText('Discard my edits and use the current file'))
+
+      expect(screen.queryByTestId('skill-disk-conflict')).not.toBeInTheDocument()
+      expect(screen.getByDisplayValue('agent rewrote this')).toBeInTheDocument()
+      fireEvent.click(screen.getByText('Save'))
+      await waitFor(() => expect(mockApi.updateSkill).toHaveBeenCalledTimes(2))
+      expect(mockApi.updateSkill.mock.calls[1][2]).toBe('h-current')
+    })
+
+    it('Keep writes the draft against the current file hash', async () => {
+      const notice = await refuseFirstSave()
+      fireEvent.click(within(notice).getByText('Keep my edits and replace the current file'))
+
+      await waitFor(() => expect(mockApi.updateSkill).toHaveBeenCalledTimes(2))
+      const [key, content, base] = mockApi.updateSkill.mock.calls[1]
+      expect(key).toBe('fragile')
+      expect(content).toMatch(/my draft/)
+      expect(base).toBe('h-current')
+      await waitFor(() => expect(screen.queryByText('Save')).not.toBeInTheDocument())
+    })
+
+    it('reports the ordinary save failure when the current file cannot be read', async () => {
+      mockApi.skills.mockResolvedValue(SKILL)
+      mockApi.updateSkill.mockRejectedValueOnce(conflict())
+      await enterEditor()
+      mockApi.skill.mockRejectedValue(new Error('read failed'))
+      fireEvent.change(screen.getByDisplayValue('body'), { target: { value: 'my draft' } })
+      fireEvent.click(screen.getByText('Save'))
+
+      const notice = await screen.findByTestId('skill-update-failure')
+      expect(notice.textContent).toMatch(/Save failed/)
+      expect(screen.queryByTestId('skill-disk-conflict')).not.toBeInTheDocument()
+      expect(screen.getByDisplayValue('my draft')).toBeInTheDocument()
+    })
+  })
+
+  it('every [\'skills\'] reader on the tab refetches on mount (none keeps a page-lifetime copy)', async () => {
+    // The pending panel reads the same key to tell "approved" from "dismissed";
+    // on the global staleTime: Infinity it would answer from the first fetch.
+    mockApi.skills.mockResolvedValue(SKILL)
+    const { qc } = renderWithQuery()
+    await screen.findByText('Edit')
+    const observers = qc.getQueryCache().find({ queryKey: ['skills'] })!.observers
+    expect(observers.length).toBeGreaterThan(1)
+    for (const o of observers) expect(o.options.staleTime).toBe(0)
   })
 
   it('clears the update failure when the editor is re-entered', async () => {
@@ -1306,6 +1406,57 @@ describe('SkillsTab update/delete failure surfacing', () => {
     } finally {
       isMobileMock.value = false
     }
+  })
+
+  it('names a disk conflict on the list when a viewport crossing hides the editor mid-save', async () => {
+    try {
+      mockApi.skills.mockResolvedValue(SKILL)
+      let rejectUpdate: (e: Error) => void = () => {}
+      mockApi.updateSkill.mockImplementation(() => new Promise((_, rej) => { rejectUpdate = rej }))
+
+      renderWithQuery()
+      const editBtn = await screen.findByText('Edit')
+      await waitFor(() => expect(editBtn).not.toBeDisabled())
+      fireEvent.click(editBtn)
+      fireEvent.click(await screen.findByText('Save'))
+      await waitFor(() => expect(mockApi.updateSkill).toHaveBeenCalled())
+
+      isMobileMock.value = true
+      fireEvent.change(screen.getByPlaceholderText(/filter skills/i), { target: { value: 'f' } })
+      await waitFor(() => expect(screen.queryByText('Saving…')).not.toBeInTheDocument())
+
+      await act(async () => {
+        rejectUpdate(new StubApiError(409, 'changed on disk', JSON.stringify({
+          error: 'changed on disk', code: 'content_conflict',
+        })))
+      })
+      const notice = await screen.findByTestId('skill-disk-conflict-list')
+      expect(notice.textContent).toMatch(/edited after you opened it/)
+
+      // A row tap reopens the latched editor, which carries the choices.
+      fireEvent.click(screen.getByText('fragile'))
+      await screen.findByTestId('skill-disk-conflict')
+      expect(screen.queryByTestId('skill-disk-conflict-list')).not.toBeInTheDocument()
+    } finally {
+      isMobileMock.value = false
+    }
+  })
+
+  it('keeps Create New Skill off while Edit re-reads the file, so a late seed cannot overwrite a new draft', async () => {
+    mockApi.skills.mockResolvedValue(SKILL)
+    renderWithQuery()
+    const editBtn = await screen.findByText('Edit')
+    await waitFor(() => expect(editBtn).not.toBeDisabled())
+    let resolveRead: (v: { name: string; content: string; hash: string }) => void = () => {}
+    mockApi.skill.mockImplementation(() => new Promise(res => { resolveRead = res }))
+
+    fireEvent.click(editBtn)
+    const create = screen.getByText('Create New Skill').closest('button')!
+    await waitFor(() => expect(create).toBeDisabled())
+
+    await act(async () => { resolveRead({ name: 'fragile', content: '---\nname: fragile\n---\nbody', hash: 'h-seeded' }) })
+    await screen.findByText('Save')
+    expect(create).not.toBeDisabled()
   })
 
   it('disables Cancel while a save is in flight, so its outcome cannot report nowhere', async () => {
