@@ -910,6 +910,20 @@ class TestQueueEdit:
         assert status == 400
 
     @pytest.mark.asyncio
+    async def test_a_send_already_in_the_conversation_is_not_edited(self, _sel):
+        # A waiting send whose row was written where it was sent is part of the
+        # conversation; editing only its entry would leave the old row and add
+        # a second one at the drain.
+        slot = _ChatSlot("s1")
+        qid = slot.queue_append("orig")
+        slot._queue[0]["_responsive_row"] = slot.append("user", "orig", "msg msg-u")
+        status, body = await self._patch(_state(slot), "s1", qid, {"content": "changed"})
+        assert status == 409
+        assert body["code"] == "queue_item_already_sent"
+        assert slot._queue[0]["content"] == "orig"
+        assert [m["content"] for m in slot.messages if m["role"] == "user"] == ["orig"]
+
+    @pytest.mark.asyncio
     async def test_unknown_queue_id_is_404(self, _sel):
         slot = _ChatSlot("s1")
         status, body = await self._patch(_state(slot), "s1", "nope", {"content": "x"})

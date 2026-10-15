@@ -102,6 +102,17 @@ async def api_chat_slot_queue_edit(request: web.Request) -> web.Response:
     content = body.get("content")
     if not isinstance(content, str) or not content.strip():
         return web.json_response({"error": "content must be a non-empty string"}, status=400)
+    queued = next((i for i in slot._queue if i.get("id") == queue_id), None)
+    from kiro_crew.dashboard import responsive_chat
+
+    if queued is not None and responsive_chat.row_already_written(slot, queued):
+        return web.json_response(
+            {
+                "error": "this message is already in the conversation and can no longer be edited",
+                "code": "queue_item_already_sent",
+            },
+            status=409,
+        )
     if not slot.queue_edit_by_id(
         queue_id,
         content,
