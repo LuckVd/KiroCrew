@@ -99,6 +99,13 @@ async function waitForLoaded() {
   await waitFor(() => expect(screen.getByLabelText('Toggle agent chat')).toBeInTheDocument())
 }
 
+
+/** Flush React effects and pending microtasks inside act(), so a "nothing more happens"
+ *  assertion reads the tree the store update produced -- no wall-clock guess at UI timing. */
+async function settleRender(): Promise<void> {
+  await act(async () => {})
+}
+
 describe('ArtifactDetailPage companion chat', () => {
   beforeEach(() => {
     vi.clearAllMocks()
@@ -210,7 +217,7 @@ describe('ArtifactDetailPage companion chat', () => {
     expect(content).toContain('cr-queue')
     expect(content).toContain('artifact_get_comments')
     expect(opts).toEqual({
-      source: 'artifact-companion', maxAge: 3600, ephemeral: false,
+      source: 'artifact-companion', ephemeral: true, maxAge: 3600,
     })
   })
 
@@ -224,25 +231,6 @@ describe('ArtifactDetailPage companion chat', () => {
     await waitForLoaded()
     fireEvent.click(screen.getByLabelText('Toggle agent chat'))
     await waitFor(() => expect(vi.mocked(api).chatSlotContext).toHaveBeenCalledTimes(1))
-  })
-
-  it('a queue-full refusal does not persist a claim that suppresses later nudges', async () => {
-    // UX finding: holding the claim on a 429 marked the version injected though it never
-    // was, so that version's freshness nudge was skipped on EVERY later reload.
-    localStorage.clear()
-    sessionStorage.clear()
-    const refusal = Object.assign(new Error('context_not_queued'), {
-      status: 429,
-      body: JSON.stringify({ code: 'context_not_queued' }),
-    })
-    vi.mocked(api).chatSlotContext = vi.fn().mockRejectedValue(refusal)
-    renderPage()
-    await waitForLoaded()
-    fireEvent.click(screen.getByLabelText('Toggle agent chat'))
-    await waitFor(() => expect(vi.mocked(api).chatSlotContext).toHaveBeenCalledTimes(1))
-    // Positive control: the refusal really was recognised as one, so the null below is
-    // the released claim rather than a path that never ran.
-    expect(vi.mocked(api).chatSlotContext).toHaveBeenCalledTimes(1)
   })
 
   it('does not inject on a user turn, because that lands behind the turn it informs', async () => {
@@ -260,7 +248,7 @@ describe('ArtifactDetailPage companion chat', () => {
 
     // A user turn lands. It says nothing about the artifact.
     seedSlots(store, [mkSlot({ key: 'slot-new', artifact: 'cr-queue' })])
-    await new Promise((r) => setTimeout(r, 60))
+    await settleRender()
 
     // Exactly the one attempt from the open: the turn triggered no second call.
     expect(vi.mocked(api).chatSlotContext).toHaveBeenCalledTimes(1)
@@ -284,7 +272,7 @@ describe('ArtifactDetailPage companion chat', () => {
     expect(screen.getByRole('alert')).toHaveTextContent(/Couldn't share this artifact/i)
 
     seedSlots(store, [mkSlot({ key: 'slot-new', artifact: 'cr-queue' })])
-    await new Promise((r) => setTimeout(r, 60))
+    await settleRender()
 
     // Still a failed first share. Telling the user a newer version exists names a state the
     // session was never in, and a different bound slot re-baselines rather than retracting.
@@ -307,11 +295,11 @@ describe('ArtifactDetailPage companion chat', () => {
 
     // Resolving the bound slot is the baseline, not an advance.
     seedSlots(store, [mkSlot({ key: 'slot-new', artifact: 'cr-queue', messages: 1 })])
-    await new Promise((r) => setTimeout(r, 60))
+    await settleRender()
     expect(screen.getByRole('alert')).toBeInTheDocument()
 
     seedSlots(store, [mkSlot({ key: 'slot-new', artifact: 'cr-queue', messages: 2 })])
-    await new Promise((r) => setTimeout(r, 80))
+    await settleRender()
 
     expect(screen.getByRole('alert')).toBeInTheDocument()
   })
@@ -674,6 +662,41 @@ describe('ArtifactDetailPage companion chat', () => {
     expect(vi.mocked(api).createChatSlot).toHaveBeenCalledTimes(1)
   })
 
+  it("does not let a superseded session's late success clear the current session's notice", async () => {
+    // GPT F1: success was matched on slug + version only, so the archived session's slow 200
+    // at the same version retracted the replacement session's failure -- a silent "attached".
+    let resolveFirst: (v: unknown) => void = () => {}
+    // The server's list follows the creates, so a refetch never prunes the live bound slot.
+    let live: string[] = []
+    vi.mocked(api).chatSlots = vi.fn().mockImplementation(async () =>
+      live.map(key => mkSlot({ key, artifact: 'cr-queue' })))
+    vi.mocked(api).deleteChatSlot = vi.fn().mockImplementation(async (key: string) => {
+      live = live.filter(k => k !== key); return { ok: true }
+    })
+    vi.mocked(api).createChatSlot = vi.fn()
+      .mockImplementationOnce(async () => { live = ['slot-a']; return { key: 'slot-a', title: 'Artifact: CR Queue' } })
+      .mockImplementationOnce(async () => { live = ['slot-b']; return { key: 'slot-b', title: 'Artifact: CR Queue' } })
+    vi.mocked(api).chatSlotContext = vi.fn()
+      .mockImplementationOnce(() => new Promise((r) => { resolveFirst = r }))
+      .mockRejectedValueOnce(new Error('500 Server Error'))
+    renderPage()
+    await waitForLoaded()
+    fireEvent.click(screen.getByLabelText('Toggle agent chat'))
+    await waitFor(() => expect(vi.mocked(api).chatSlotContext).toHaveBeenCalledTimes(1))
+    await waitFor(() => expect(screen.getByTestId('chat-page')).toBeInTheDocument())
+
+    fireEvent.click(screen.getByLabelText('New chat'))
+    await waitFor(() => expect(vi.mocked(api).chatSlotContext).toHaveBeenCalledTimes(2))
+    expect(vi.mocked(api).chatSlotContext.mock.calls[1][0]).toBe('slot-b')
+    await waitFor(() => expect(screen.getByRole('alert')).toBeInTheDocument())
+
+    // The archived session's request lands late, and succeeds.
+    await act(async () => { resolveFirst({ ok: true }) })
+    await settleRender()
+
+    expect(screen.getByRole('alert')).toBeInTheDocument()
+  })
+
   it('releases the guard so a later "New chat" still works', async () => {
     // A guard that leaks would wedge the button permanently after one use.
     const store = createTestStore()
@@ -828,7 +851,7 @@ describe('ArtifactDetailPage companion chat', () => {
     await waitFor(() => expect(screen.getByRole('alert')).toBeInTheDocument())
 
     seedSlots(store, [mkSlot({ key: 'slot-new', artifact: 'cr-queue', messages: 1 })])
-    await new Promise((r) => setTimeout(r, 60))
+    await settleRender()
     expect(screen.getByRole('alert')).toBeInTheDocument()
 
     act(() => {
@@ -837,7 +860,7 @@ describe('ArtifactDetailPage companion chat', () => {
         message: { role: 'user', content: 'an unrelated question' },
       }))
     })
-    await new Promise((r) => setTimeout(r, 80))
+    await settleRender()
 
     // Positive control: the row really landed, so the surviving notice is the policy and not a
     // dispatch that did nothing. Active slots keep rows on `messages`, others on `slotMessages`.

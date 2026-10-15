@@ -1440,28 +1440,12 @@ export default function ArtifactDetailPage({ popout = false }: { popout?: boolea
   // MEMORY ONLY, and scoped to this page's lifetime. A resolved POST is not a durable-write
   // acknowledgment, so a claim that outlived the page could skip a nudge for a lost entry.
   const injectedVersionRef = useRef<Map<string, number>>(new Map())
-  /** Claim the version for an IN-FLIGHT injection: suppresses a concurrent second
-   *  injection within this page. */
-  const holdInjectedVersion = useCallback((slotKey: string, version: number) => {
-    injectedVersionRef.current.set(slotKey, version)
-  }, [])
-  /** Record a version as genuinely DELIVERED (or as a deliberate baseline).
-   *
-   *  The endpoint reports no per-POST durability flag to branch on, so the claim cannot
-   *  outlive the page that observed the response -- a repeat nudge is the lesser evil. */
-  const confirmInjectedVersion = useCallback((slotKey: string, version: number) => {
-    injectedVersionRef.current.set(slotKey, version)
-  }, [])
   /** Drop the claim after a rejected POST, so the next open retries. Guarded on the
    *  version: a stale rejection must not delete a newer request's claim. */
   const releaseInjectedVersion = useCallback((slotKey: string, version: number) => {
     if (injectedVersionRef.current.get(slotKey) === version) {
       injectedVersionRef.current.delete(slotKey)
     }
-  }, [])
-  /** This page's own claim. A reload starts empty and re-nudges, by design. */
-  const readInjectedVersion = useCallback((slotKey: string): number | undefined => {
-    return injectedVersionRef.current.get(slotKey)
   }, [])
 
   /** Structured context entry naming the artifact — injected as background context
@@ -1497,34 +1481,37 @@ export default function ArtifactDetailPage({ popout = false }: { popout?: boolea
    * The hold is taken by the CALLER, before `mutate`, so an open/close/reopen inside the
    * request window cannot inject twice; only a resolved write persists the claim.
    */
-  // The NEWEST version any injection has requested. A ref, not state: it gates a retraction
-  // inside a callback and must never itself cause a render.
-  const latestInjectedRequest = useRef<{ slug: string; version: number }>({ slug: '', version: 0 })
+  // The NEWEST injection requested, keyed by artifact AND slot. A ref, not state: it gates a
+  // retraction inside a callback and must never itself cause a render.
+  const latestInjectedRequest = useRef<{ slug: string; slotKey: string; version: number }>(
+    { slug: '', slotKey: '', version: 0 },
+  )
 
   const injectContextMut = useMutation({
     mutationFn: (vars: InjectVars) =>
       api.chatSlotContext(vars.slotKey, buildCompanionContext(), {
-        source: 'artifact-companion', maxAge: COMPANION_CONTEXT_MAX_AGE_S,
-        // EXPLICIT rather than relying on the boundary default of True: this entry asks to be
-        // durable, which the boundary honours once it persists the queue across a close.
-        ephemeral: false,
+        source: 'artifact-companion', ephemeral: true, maxAge: COMPANION_CONTEXT_MAX_AGE_S,
       }),
     onSuccess: (_d: unknown, vars: InjectVars) => {
-      confirmInjectedVersion(vars.slotKey, vars.version)
+      injectedVersionRef.current.set(vars.slotKey, vars.version)
       // ARTIFACT-SCOPED: a version number is not an identity, and this page outlives a slug
       // change, so another artifact's success must not retract THIS artifact's failure.
       if (vars.slug !== slug) return
       const high = latestInjectedRequest.current
-      // Newest request only: an older success would clear a notice this write cannot satisfy.
-      if (high.slug === slug && vars.version >= high.version) setContextError(null)
+      // Newest request on the CURRENT slot only: an older success, or a superseded session's
+      // late success at the same version, would clear a notice this write cannot satisfy.
+      if (high.slug === slug && high.slotKey === vars.slotKey && vars.version >= high.version) {
+        setContextError(null)
+      }
     },
     onMutate: (vars: InjectVars) => {
       const high = latestInjectedRequest.current
       // The high-water mark RESTARTS per artifact: carrying a taller version across a slug
       // change would suppress the next legitimate retraction on the artifact now shown.
-      latestInjectedRequest.current = high.slug === vars.slug
-        ? { slug: vars.slug, version: Math.max(high.version, vars.version) }
-        : { slug: vars.slug, version: vars.version }
+      // A new slot restarts it too: the notice now belongs to that session.
+      latestInjectedRequest.current = high.slug === vars.slug && high.slotKey === vars.slotKey
+        ? { slug: vars.slug, slotKey: vars.slotKey, version: Math.max(high.version, vars.version) }
+        : { slug: vars.slug, slotKey: vars.slotKey, version: vars.version }
     },
     onError: (_err: unknown, vars: InjectVars) => {
       // Not a delivery, so the claim is released and the next open RETRIES rather than
@@ -1574,7 +1561,7 @@ export default function ArtifactDetailPage({ popout = false }: { popout?: boolea
       // Held BEFORE the POST so a concurrent reopen cannot inject twice; the hold is
       // memory-only and only a RESOLVED post persists the claim.
       const injectedVersion = artifact.version
-      holdInjectedVersion(res.key, injectedVersion)
+      injectedVersionRef.current.set(res.key, injectedVersion)
       injectContextMut.mutate({ slotKey: res.key, version: injectedVersion, slug })
       dispatch(fetchSlots())
       return res.key as string
@@ -1584,7 +1571,7 @@ export default function ArtifactDetailPage({ popout = false }: { popout?: boolea
     } finally {
       setChatCreating(false)
     }
-  }, [artifact, dispatch, holdInjectedVersion, injectContextMut, slug])
+  }, [artifact, dispatch, injectContextMut, slug])
 
   /** Sparkle flow: resume the active bound session if one exists, else create a
    *  new one. With `address`, stage (never auto-send) the address-comments
@@ -1634,7 +1621,7 @@ export default function ArtifactDetailPage({ popout = false }: { popout?: boolea
     // activity, inject a fresh short-lived context entry so the agent doesn't act
     // on stale-version assumptions. Best-effort — ISO timestamps compare
     // lexicographically; a miss just means the agent re-reads via artifact_get.
-    const injected = readInjectedVersion(boundSlotResolved.key)
+    const injected = injectedVersionRef.current.get(boundSlotResolved.key)
     const artifactIsStale = Boolean(
       boundSlotResolved.last_activity_ts && artifact.updated_at &&
       artifact.updated_at > boundSlotResolved.last_activity_ts
@@ -1643,12 +1630,11 @@ export default function ArtifactDetailPage({ popout = false }: { popout?: boolea
     // INJECTED, and re-sending on that ambiguity delivers one entry twice.
     if (injected !== artifact.version && artifactIsStale) {
       const nudgeVersion = artifact.version
-      holdInjectedVersion(boundSlotResolved.key, nudgeVersion)
+      injectedVersionRef.current.set(boundSlotResolved.key, nudgeVersion)
       injectContextMut.mutate({ slotKey: boundSlotResolved.key, version: nudgeVersion, slug, refresh: true })
     }
   }, [artifact, panel, commentCount, boundSlot, slotsLoaded, slug, dispatch,
-      createBoundSession, readInjectedVersion,
-      holdInjectedVersion, injectContextMut])
+      createBoundSession, injectContextMut])
 
   /** "New chat": archive the current bound session FIRST (the existing red-X
    *  delete path — history preserved, resumable from the History page), then

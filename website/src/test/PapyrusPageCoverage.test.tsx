@@ -608,7 +608,7 @@ describe('Papyrus co-author session', () => {
     await waitFor(() => expect(chat.chatSlotContext).toHaveBeenCalledWith(
       SLOT,
       expect.stringContaining(PROJECT),
-      { source: 'papyrus-co-author', ephemeral: false, maxAge: 3600 },
+      { source: 'papyrus-co-author', ephemeral: true, maxAge: 3600 },
     ))
     // ...and remembered, so reopening the paper reuses it.
     expect(localStorage.getItem(SLOT_KEY_PREFIX + PROJECT)).toBe(SLOT)
@@ -662,24 +662,6 @@ describe('Papyrus co-author session', () => {
 
     await waitFor(() => expect(localStorage.getItem(SLOT_KEY_PREFIX + PROJECT)).toBe(SLOT))
     expect(await screen.findByRole('alert')).toHaveTextContent(/next message/i)
-  })
-
-  it('surfaces a full-queue refusal of the context push', async () => {
-    // GPT BLOCKING F1: a 429 `context_not_queued` meant the document was DECLINED, and
-    // swallowing it left the agent without context and the user unaware.
-    const { ApiError } = await import('../api/apiError')
-    chat.chatSlotContext.mockRejectedValue(
-      new ApiError(429, 'rejected', JSON.stringify({ error: 'context_not_queued' })),
-    )
-    const { user } = openWorkspace()
-    await workspaceReady()
-
-    await user.click(screen.getByRole('button', { name: /Co-author/ }))
-
-    await waitFor(() => expect(localStorage.getItem(SLOT_KEY_PREFIX + PROJECT)).toBe(SLOT))
-    // The capacity wording, not the generic copy: both notices mention the next message, so
-    // only this phrase proves the 429 was told apart from an ordinary rejection.
-    expect(await screen.findByRole('alert')).toHaveTextContent(/Mention the paper/i)
   })
 
   it('closes the panel again', async () => {

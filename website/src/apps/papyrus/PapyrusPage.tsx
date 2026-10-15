@@ -680,17 +680,21 @@ export default function PapyrusPage() {
 
   // Routed through React Query like every other mutation on this page, so the request is
   // retried, deduped and observable rather than a bare floating promise.
+  // Counts context pushes, so only the NEWEST one's result may set or clear the notice: a late
+  // success from a superseded session must not retract the current session's failure.
+  const contextRequestSeq = useRef(0)
   const injectContextMut = useMutation({
-    mutationFn: (vars: { slotKey: string }) =>
+    mutationFn: (vars: { slotKey: string; seq: number }) =>
       api.chatSlotContext(vars.slotKey, companionContext(), {
-        source: 'papyrus-co-author', ephemeral: false, maxAge: 3600,
+        source: 'papyrus-co-author', ephemeral: true, maxAge: 3600,
       }),
-    onSuccess: () => {
-      setContextError(null)
+    onSuccess: (_d: unknown, vars: { slotKey: string; seq: number }) => {
+      if (vars.seq === contextRequestSeq.current) setContextError(null)
     },
     // EVERY rejection reaches the user: silence left the session open with no document
     // context and no way to know, and every cause shares the one actionable remedy.
-    onError: () => {
+    onError: (_e: unknown, vars: { slotKey: string; seq: number }) => {
+      if (vars.seq !== contextRequestSeq.current) return
       setContextError(i18nT('apps.papyrus.workspace.context_not_attached'))
     },
   })
@@ -762,6 +766,10 @@ export default function PapyrusPage() {
   // Adopt the remembered slot for this paper as soon as the project changes.
   useEffect(() => {
     setSlotKey(project ? loadSlot(project) : null)
+    // The notice names the paper it was raised on; a pending push for the old paper is
+    // superseded too, so its late result cannot raise or clear the next paper's notice.
+    contextRequestSeq.current += 1
+    setContextError(null)
   }, [project])
 
   /** Build the silent context that tells the agent which paper it is working on.
@@ -788,7 +796,8 @@ export default function PapyrusPage() {
         messages: 0,
         running: false,
       } as ChatSlot))
-      injectContext({ slotKey: key })
+      contextRequestSeq.current += 1
+      injectContext({ slotKey: key, seq: contextRequestSeq.current })
       dispatch(fetchSlots())
       saveSlot(project, key)
       setSlotKey(key)
