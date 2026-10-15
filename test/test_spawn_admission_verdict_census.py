@@ -126,6 +126,9 @@ _OUTSIDE_THE_GATE = frozenset(
         # The pressure hold's bound ended a start it kept, after its caller was
         # told it was queued: the terminal of a wait, not a refusal.
         "never_started_memory_pressure",
+        # The parent-spec read found no user-level spec and no project dir to
+        # look in: an audit of what the gate could not see, not a verdict.
+        "parent_spec_unresolved",
     }
 )
 

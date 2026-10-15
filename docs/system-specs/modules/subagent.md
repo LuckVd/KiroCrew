@@ -1253,7 +1253,32 @@ declaration itself (`subagent._vet_parent_available_agents`, called from
   its execution record (`read_session_execution(parent_session_key).template_id`)
   and resolved in the user-level agents directory the way `agent_spec_path`
   resolves a name (declared `name` wins, filename stem is the fallback; two
-  specs declaring the name are both applied, tightest-wins). Read with one
+  specs declaring the name are both applied, tightest-wins).
+- **Project scope.** For each project directory the parent session may run in
+  (`subagent.parent_project_dirs`, answered by the resolver the gateway installs
+  with `set_parent_project_resolver`:
+  `_shared.session_project_for_spawn_gate` returns a sub-agent parent's run
+  cwd, or for a chat parent BOTH its live session's bound cwd
+  (`provider.cwd`) and the project of the slot whose effective session key IS
+  the parent's — a `set_project` change only stages the slot's project until
+  the next cold start, so the running agent's directory is still applied —
+  never `active_project_dir`'s "the one project every slot shares" guess),
+  `<project>/.kiro/agents` is resolved by the same rules, through the
+  same hardened reader under its own SEL label (`spawn_available_agents_project`)
+  and its own `_PARENT_PROJECT_ALLOWLIST_MEMO`. Its lists are ADDED to the
+  user-level ones and the target must satisfy all of them. kiro-cli lets a
+  project spec shadow a user-level one; the gate does not pick a winner, so
+  honouring the project scope only ever narrows. Every unreadable or
+  unscannable rule below applies to the project directory too, and either
+  scope answering UNKNOWN refuses. Every entry point resolves it the same way
+  (`subagent.parent_template_allowlists(parent_session_key, template)`).
+- **Unresolved parent = surfaced.** When the project directory is unknown (no
+  resolver in this process, a session with no slot project, a sub-agent run
+  with no cwd) and no user-level spec names the parent, a project-scope
+  declaration may exist that the gate cannot see. The spawn keeps the
+  admission it had, and the gap is logged at WARNING once per name and written
+  to the SEL as a `spawn_run` tool invocation with outcome
+  `parent_spec_unresolved` on every occurrence. Read with one
   fresh walk through the hardened reader (`_scan_parent_spawn_allowlists`),
   memoized per directory in an `AgentsDirMemo` pinned to
   `agents_dir_revision` (names, mtime AND ctime, size, inode, mode, link
@@ -1326,10 +1351,11 @@ declaration itself (`subagent._vet_parent_available_agents`, called from
   and the allowed globs (grammar-checked, redacted, bounded like every rendered
   roster). `spawn_run` short-circuits the rest of a wave on this code exactly
   as it does on `agent_not_found`.
-- **Not covered yet**: a parent whose spec lives only in a project's
-  `.kiro/agents` (the gate does not know the parent session's project dir);
-  its declaration is not honoured. There is no warning when a spec declares
-  the key but the session's `tools` lack the kiro-cli `subagent` tool.
+- **Not covered yet**: a project-scope parent whose project directory the
+  gate cannot resolve (see "Unresolved parent = surfaced" above) is audited,
+  not refused. The advisory spawn-tool roster and the Slack cron default
+  substitution read the user-level scope only. There is no warning when a spec
+  declares the key but the session's `tools` lack the kiro-cli `subagent` tool.
 
 The spawn tools advertise the same view: `spawn_run`'s "Valid names right now"
 roster and `spawn_list`'s "Available agents" line drop the names the parent's

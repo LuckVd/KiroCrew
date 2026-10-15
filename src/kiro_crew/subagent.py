@@ -92,7 +92,7 @@ from kiro_crew.agent_spec_format import is_markdown_spec, iter_agent_spec_files
 from kiro_crew.atomic_write import on_event_loop  # noqa: F401
 from kiro_crew.config import live
 from kiro_crew.config.loader import DEFAULT_MODEL, KIRO_CLI_BUILTIN_AGENTS, KiroCrewConfig
-from kiro_crew.config.paths import data_home
+from kiro_crew.config.paths import data_home, project_agents_dir
 from kiro_crew.config.sections import SESSION_START_TIMEOUT_MIN, AgentConfig
 from kiro_crew.constants import (  # noqa: F401 - DENY_CAUSE_* resolved by admission/pump.py via bind_component_globals
     DEFAULT_SPAWN_MIN_MEMORY_GB,
@@ -689,8 +689,27 @@ def agent_matches_allowlist(agent: str, allowlist: Iterable[str], *, app: str = 
     )
 
 
-def parent_spawn_allowlists(parent_template: str) -> tuple[tuple[str, ...], ...] | None:
+def parent_spawn_allowlists(
+    parent_template: str,
+    project_dirs: Sequence[str | Path] = (),
+    *,
+    parent_session_key: str = "",
+) -> tuple[tuple[str, ...], ...] | None:
     """Every ``availableAgents`` list the specs naming *parent_template* declare.
+
+    *project_dirs* are the directories the PARENT session's kiro-cli may be
+    running in (:func:`parent_project_dirs`). For each,
+    ``<project_dir>/.kiro/agents`` is resolved too, by the same rules and the
+    same hardened reader under its own SEL label, and its lists are ADDED to the
+    user-level ones: the target must satisfy every list from every scope. kiro-cli lets a project spec shadow a
+    user-level one of the same name; the gate does not pick the winner, it
+    applies both, so honouring the project scope can only narrow what a parent
+    may spawn, never widen it. ``None`` from either scope is ``None``.
+
+    *parent_session_key* is used only to audit the case this function cannot
+    resolve: no project directory is known for the parent and no user-level spec
+    names it, so a project-scope declaration may exist that is not honoured
+    (:func:`_surface_unresolved_parent_spec`).
 
     Resolution follows :func:`kiro_crew.agent.agent_spec_path`: a spec whose
     DECLARED ``name`` is *parent_template* wins; ``<parent_template>.json`` (or
@@ -730,13 +749,50 @@ def parent_spawn_allowlists(parent_template: str) -> tuple[tuple[str, ...], ...]
     read, so the event-loop entry points call it through ``asyncio.to_thread``
     (see :func:`parent_spawn_policy`) rather than from the gate. A parent living
     only in a project's ``.kiro/agents`` is not resolved here (its declaration
-    is not honoured yet; see the module spec).
+    is resolved only when *project_dirs* is given -- see :func:`parent_project_dirs`.
     """
     # ``match``, not ``fullmatch``: the pattern is anchored, and the roster
     # ratchet reserves the ``fullmatch`` spelling for ``visible_agent_names``.
     if not parent_template or not _AGENT_NAME_RE.match(parent_template):
         return ()
-    agents_dir = _kiro_agents_dir()
+    user_lists, user_found = _scope_spawn_allowlists(
+        _kiro_agents_dir(), parent_template, _PARENT_ALLOWLIST_MEMO, "spawn_available_agents"
+    )
+    project_dirs = tuple(dict.fromkeys(str(d) for d in project_dirs if d))
+    if not project_dirs:
+        if user_lists is not None and not user_found and parent_session_key:
+            _surface_unresolved_parent_spec(parent_template, parent_session_key)
+        return user_lists
+    if user_lists is None:
+        return None
+    lists = user_lists
+    for directory in project_dirs:
+        project_lists, _project_found = _scope_spawn_allowlists(
+            project_agents_dir(directory),
+            parent_template,
+            _PARENT_PROJECT_ALLOWLIST_MEMO,
+            "spawn_available_agents_project",
+        )
+        if project_lists is None:
+            return None
+        # Every scope applies (tightest-wins): an added list can only refuse more.
+        lists = lists + project_lists
+    return lists
+
+
+#: ``(allowlists, found)`` for one agents directory: *allowlists* as
+#: :func:`parent_spawn_allowlists` answers it for that directory alone, *found*
+#: whether any readable spec there resolved the parent's name at all.
+_ScopeAllowlists = tuple["tuple[tuple[str, ...], ...] | None", bool]
+
+
+def _scope_spawn_allowlists(
+    agents_dir: Path,
+    parent_template: str,
+    memo: "AgentsDirMemo[_ScopeAllowlists]",
+    operation: str,
+) -> _ScopeAllowlists:
+    """Resolve *parent_template* in one agents directory (user or project scope)."""
     # Probe the walk first: a directory that is absent declares nothing
     # (nothing could have loaded the parent from it either), while one that
     # exists but cannot be scanned -- unreadable, or the path replaced by a
@@ -745,19 +801,93 @@ def parent_spawn_allowlists(parent_template: str) -> tuple[tuple[str, ...], ...]
         with os.scandir(agents_dir):
             pass
     except FileNotFoundError:
-        return ()
+        return (), False
     except OSError as exc:
         logger.warning("agents directory %s is not scannable (%s); refusing spawn", agents_dir, exc)
-        return None
+        return None, False
     try:
-        return _PARENT_ALLOWLIST_MEMO.get(
+        return memo.get(
             agents_dir,
             parent_template,
-            lambda: _scan_parent_spawn_allowlists(agents_dir, parent_template),
+            lambda: _scan_parent_spawn_allowlists(agents_dir, parent_template, operation),
         )
     except OSError as exc:  # the directory walk itself failed: an unknown answer
         logger.warning("agents directory %s is not scannable (%s); refusing spawn", agents_dir, exc)
-        return None
+        return None, False
+
+
+#: Parent templates already warned about by :func:`_surface_unresolved_parent_spec`
+#: in this process, so the log line is said once per name rather than per spawn.
+#: Bounded: past the cap nothing more is recorded and the warning keeps firing,
+#: which is noisier, never quieter.
+_UNRESOLVED_PARENT_WARNED: set[str] = set()
+_UNRESOLVED_PARENT_WARNED_MAX = 256
+
+#: Resolves a CALLING session key to every project directory its kiro-cli may
+#: be running in: the live session's bound cwd AND the slot's staged project for
+#: a chat (they differ while a project change waits for the next cold start), the
+#: run's cwd for a sub-agent. Wired by the gateway (``DashboardState``); unset in
+#: a process with no chat slots, where :func:`parent_project_dirs` answers ``()``.
+_parent_project_resolver: Callable[[str], "Iterable[str | Path]"] | None = None
+
+
+def set_parent_project_resolver(resolver: Callable[[str], "Iterable[str | Path]"] | None) -> None:
+    """Install the gateway's session-key -> project-directories resolver."""
+    global _parent_project_resolver
+    _parent_project_resolver = resolver
+
+
+def parent_project_dirs(parent_session_key: str) -> tuple[str, ...]:
+    """The project directories the parent session may run in, ``()`` when unknown.
+
+    Only the session's OWN bindings are used (its live runtime's cwd and its
+    slot's project, or a sub-agent's cwd), never a guess such as "the one project
+    every slot shares". Every directory returned is applied, so a binding that
+    is stale can only add restrictions. A resolver that raises is "unknown",
+    which keeps today's user-level-only resolution and is audited by
+    :func:`_surface_unresolved_parent_spec` when it matters.
+    """
+    resolver = _parent_project_resolver
+    if resolver is None or not parent_session_key:
+        return ()
+    try:
+        values = resolver(parent_session_key)
+        return tuple(dict.fromkeys(str(v) for v in (values or ()) if v))
+    except Exception:  # noqa: BLE001 - a resolver failure is "unknown", never a crash
+        logger.debug("parent project resolver failed for %s", parent_session_key, exc_info=True)
+        return ()
+
+
+def _surface_unresolved_parent_spec(parent_template: str, parent_session_key: str) -> None:
+    """Say that a parent's ``availableAgents`` may be unhonoured, loudly.
+
+    Reached when no project directory is known for the parent session and no
+    user-level spec names its template: the parent may be a project-scope agent
+    whose declaration this gate cannot see. The spawn keeps today's admission
+    (there is nothing readable to refuse on), and the gap is logged at WARNING
+    once per name and audited to the SEL on every occurrence.
+    """
+    shown = redact_via_context(parent_template)
+    if parent_template not in _UNRESOLVED_PARENT_WARNED:
+        if len(_UNRESOLVED_PARENT_WARNED) < _UNRESOLVED_PARENT_WARNED_MAX:
+            _UNRESOLVED_PARENT_WARNED.add(parent_template)
+        logger.warning(
+            "parent agent %r has no user-level spec and the parent session's project "
+            "directory is unknown, so a project-scope "
+            "toolsSettings.subagent.availableAgents declaration (if any) is not honoured "
+            "for this spawn",
+            shown,
+        )
+    try:
+        sel().log_tool_invocation(
+            session_key=parent_session_key,
+            source="subagent",
+            tool_name="spawn_run",
+            outcome="parent_spec_unresolved",
+            metadata={"parent_agent": shown, "scope": "user", "project_dir": "unknown"},
+        )
+    except Exception:  # noqa: BLE001 - the audit is best-effort; the warning above stands
+        logger.debug("SEL audit failed for unresolved parent spec", exc_info=True)
 
 
 #: The gate's answers, one set per agents directory, each pinned to the
@@ -772,16 +902,22 @@ def parent_spawn_allowlists(parent_template: str) -> tuple[tuple[str, ...], ...]
 #: whenever freshness cannot be proven, and the walk then runs uncached. Its
 #: own instance, not shared with the KAS projection's or the tool-policy read's:
 #: the three reads carry different SEL ``operation`` labels.
-_PARENT_ALLOWLIST_MEMO: AgentsDirMemo[tuple[tuple[str, ...], ...] | None] = AgentsDirMemo()
+_PARENT_ALLOWLIST_MEMO: AgentsDirMemo[_ScopeAllowlists] = AgentsDirMemo()
+#: The same, for a parent session's ``<project>/.kiro/agents``: its own
+#: instance because its reads carry their own SEL ``operation`` label.
+_PARENT_PROJECT_ALLOWLIST_MEMO: AgentsDirMemo[_ScopeAllowlists] = AgentsDirMemo()
 
 
 def _scan_parent_spawn_allowlists(
-    agents_dir: Path, parent_template: str
-) -> tuple[tuple[str, ...], ...] | None:
+    agents_dir: Path, parent_template: str, operation: str = "spawn_available_agents"
+) -> _ScopeAllowlists:
     """One fresh walk of *agents_dir* for :func:`parent_spawn_allowlists`.
 
+    Answers ``(allowlists, found)``; *found* is whether a readable spec resolved
+    the parent's name (by declared ``name`` or filename stem).
+
     Every spec file goes through the hardened reader under the gate's own SEL
-    labels, and a file the reader refuses is kept as UNREADABLE rather than
+    labels (*operation* tells the user scope from the project scope), and a file the reader refuses is kept as UNREADABLE rather than
     folded into "no spec" -- except a markdown file with no opening frontmatter
     fence, which is not a spec at all (:func:`plain_markdown_document`) and is
     skipped like the AppleDouble sidecar. Propagates ``OSError`` from the
@@ -793,7 +929,13 @@ def _scan_parent_spawn_allowlists(
         if path.name.startswith("._"):
             # AppleDouble sidecar: rejected by design, not by failure.
             continue
-        data = _read_agent_spec(path, operation="spawn_available_agents", source="subagent")
+        # Literal labels at each call, so the reader's label ratchet attributes both.
+        if operation == "spawn_available_agents_project":
+            data = _read_agent_spec(
+                path, operation="spawn_available_agents_project", source="subagent"
+            )
+        else:
+            data = _read_agent_spec(path, operation="spawn_available_agents", source="subagent")
         if data is None:
             if is_markdown_spec(path) and plain_markdown_document(path):
                 # No opening frontmatter fence: a README or a shared prompt
@@ -824,10 +966,10 @@ def _scan_parent_spawn_allowlists(
                 parent_template,
                 ", ".join(repr(path.name) for path in unreadable),
             )
-            return None
+            return None, False
         declared = [data for data, path in rows if path.stem == parent_template]
     lists = (spawn_allowlist(data) for data in declared)
-    return tuple(allowlist for allowlist in lists if allowlist is not None)
+    return tuple(allowlist for allowlist in lists if allowlist is not None), bool(declared)
 
 
 class ParentRecordUnreadable(RuntimeError):
@@ -885,7 +1027,26 @@ def parent_spawn_policy(parent_session_key: str) -> ParentSpawnPolicy:
         template = _parent_template_for_spawn(parent_session_key)
     except ParentRecordUnreadable:
         return "", None
-    return template, (parent_spawn_allowlists(template) if template else ())
+    return template, parent_template_allowlists(parent_session_key, template)
+
+
+def parent_template_allowlists(
+    parent_session_key: str, template: str
+) -> tuple[tuple[str, ...], ...] | None:
+    """:func:`parent_spawn_allowlists` for *template*, in the parent session's project.
+
+    The one spelling every gate entry point uses once it holds the parent's
+    template, so each resolves the user scope AND the parent session's project
+    scope (:func:`parent_project_dirs`) the same way. Blocking: call it off the
+    event loop.
+    """
+    if not template:
+        return ()
+    return parent_spawn_allowlists(
+        template,
+        parent_project_dirs(parent_session_key),
+        parent_session_key=parent_session_key,
+    )
 
 
 def _vet_parent_available_agents(
@@ -5603,7 +5764,7 @@ class SubagentManager:
                     kwargs["_parent_spawn_policy"] = (
                         template,
                         (
-                            await asyncio.to_thread(parent_spawn_allowlists, template)
+                            await asyncio.to_thread(parent_template_allowlists, parent, template)
                             if template
                             else ()
                         ),

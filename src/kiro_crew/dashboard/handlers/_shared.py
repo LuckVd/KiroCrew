@@ -1908,6 +1908,51 @@ def requesting_slot_project(state: DashboardState, session_key: str = "") -> Pat
     return _slot_project(slot)
 
 
+def session_project_for_spawn_gate(state: DashboardState, session_key: str) -> list[Path]:
+    """Every project directory *session_key*'s own kiro-cli may be running in.
+
+    For the spawn gate's parent-spec read (``subagent.parent_project_dirs``),
+    which applies the spec of EACH directory returned. A sub-agent parent
+    (``subagent:<id>``) answers its run's cwd. A chat parent answers the cwd its
+    LIVE session is bound to (``provider.cwd``) AND the project of the slot whose
+    effective session key IS *session_key*: a ``set_project`` change only
+    stages the slot's project and resets the runtime on the next message, so
+    until then the running agent still loaded its spec from the old directory.
+    Deliberately NOT :func:`active_project_dir`: its "the one project every slot
+    shares" fallback names a directory this session may never have run in.
+    Dict reads only (no I/O), so it is safe from the worker thread the gate's
+    read runs on.
+    """
+    if not session_key:
+        return []
+    if session_key.startswith("subagent:"):
+        manager = getattr(state, "subagents", None)
+        agents = getattr(manager, "_agents", None) or {}
+        info = agents.get(session_key.removeprefix("subagent:"))
+        cwd = getattr(info, "cwd", "") if info is not None else ""
+        return [Path(cwd)] if isinstance(cwd, str) and cwd else []
+    found: list[Path] = []
+    sessions = getattr(state, "sessions", None)
+    get_provider = getattr(sessions, "get_provider", None)
+    if callable(get_provider):
+        live_cwd = getattr(get_provider(session_key), "cwd", "")
+        if isinstance(live_cwd, str) and live_cwd:
+            found.append(Path(live_cwd))
+    from kiro_crew.dashboard.chat_utils import effective_session_key
+
+    for slot in list((getattr(state, "_slots", {}) or {}).values()):
+        try:
+            if effective_session_key(slot) != session_key:
+                continue
+        except Exception:  # noqa: BLE001 - a slot-like object without a key is not this session
+            continue
+        staged = _slot_project(slot)
+        if staged is not None and staged not in found:
+            found.append(staged)
+        break
+    return found
+
+
 def _resolve_active_project(state: DashboardState, session_key: str) -> Path | None:
     """The three-step resolution shared by the two public accessors."""
     slots = getattr(state, "_slots", {}) or {}

@@ -6758,6 +6758,12 @@ class DashboardState:
             self.subagents._memory_mode_for_session = lambda key: require_live_session_memory_mode(
                 self, key
             )
+            # The spawn gate resolves a parent's project-scope agent spec in the
+            # directory that parent's kiro-cli runs in.
+            from kiro_crew.dashboard.handlers._shared import session_project_for_spawn_gate
+            from kiro_crew.subagent import set_parent_project_resolver
+
+            set_parent_project_resolver(lambda key: session_project_for_spawn_gate(self, key))
         if self.context_builder is not None:
             self.context_builder.live_memory_mode_for_session = (
                 lambda key: live_session_memory_mode(self, key)

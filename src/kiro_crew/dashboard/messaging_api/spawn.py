@@ -29,7 +29,7 @@ if TYPE_CHECKING:
         effort_drop_reason,
         effort_pending_note,
         internal_memory_scope,
-        parent_spawn_allowlists,
+        parent_template_allowlists,
         parent_work_supported,
         spawn_parent_claim,
         validate_tool_args,
@@ -317,7 +317,9 @@ async def api_spawn(request: web.Request) -> web.Response:
         parent_spawn_policy = (
             (
                 parent_execution.template_id,
-                await asyncio.to_thread(parent_spawn_allowlists, parent_execution.template_id),
+                await asyncio.to_thread(
+                    parent_template_allowlists, parent_session, parent_execution.template_id
+                ),
             )
             if parent_execution is not None
             else ("", ())

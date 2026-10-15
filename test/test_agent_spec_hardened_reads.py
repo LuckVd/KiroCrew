@@ -1145,8 +1145,12 @@ _EXPECTED_CALL_SITE_LABELS: dict[str, list[tuple[str, str]]] = {
     # The spawn gate walks every spec for the PARENT agent's
     # ``toolsSettings.subagent.availableAgents`` allowlist, and keeps a file the
     # reader refuses as unreadable (refuse) rather than as "no spec"; a denial
-    # there belongs to the sub-agent surface that asked to spawn.
-    "kiro_crew/subagent.py": [("spawn_available_agents", "subagent")],
+    # there belongs to the sub-agent surface that asked to spawn. The second
+    # label is the same walk over the parent session's ``<project>/.kiro/agents``.
+    "kiro_crew/subagent.py": [
+        ("spawn_available_agents", "subagent"),
+        ("spawn_available_agents_project", "subagent"),
+    ],
     # `list_apps` confirms a contributed command's agent was actually registered by
     # reading the app's materialized `<app>--<agent>.json` -- a user-writable dir, so
     # it goes through the hardened reader; a denial belongs to the app listing.
