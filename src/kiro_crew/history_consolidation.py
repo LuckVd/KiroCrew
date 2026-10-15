@@ -3575,12 +3575,17 @@ class HistoryConsolidator:
                     refused += 1
                     # The reason names the specific cause a bare code cannot (which
                     # confidence lost, which proposal holds the value). Causes the store
-                    # audits also carry both values in memory_events under the cause as
-                    # the event type; VALUE_SIZE and VALUE_ENCODING audit nothing, which
-                    # is why the pointer is scoped rather than a promise for every code.
+                    # audits leave a memory_events row under the cause as the event type:
+                    # log_reject_event stores only the rejected value (old_value None,
+                    # new_value cut to 200 chars). A conflict_skip row stores both values,
+                    # but not every conflict_skip refusal writes one: a revision mismatch
+                    # or bad metadata returns the code with no row. VALUE_SIZE and
+                    # VALUE_ENCODING audit nothing, which is why the pointer is scoped
+                    # rather than a promise for every code.
                     self._logger.warning(
                         "Semantic consolidation refused %r: %s: %s"
-                        " (audited causes carry both values in memory_events)",
+                        " (memory_events records the rejected value for audited causes;"
+                        " a conflict_skip row, when written, records both)",
                         item["key"],
                         reject_code.value,
                         reason,
