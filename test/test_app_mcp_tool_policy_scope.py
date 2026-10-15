@@ -12,9 +12,9 @@ skips the read for a handler outside the package.
 from __future__ import annotations
 
 import functools
-import os
 import importlib.util
 import json
+import os
 import sys
 
 from test_mcp_shared import _LoopHarness, _tools_call
