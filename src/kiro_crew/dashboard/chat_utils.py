@@ -3363,7 +3363,7 @@ def should_notice_compaction_dropped_leak(
 #: ``kiro_crew.acp.types``, following the precedent in ``metrics/turns.py``:
 #: ``scripts/check_agent_sdk_boundary.py`` baselines this file at ONE ACP edge
 #: and a baselined file may not grow its count. Duplicating a wire constant is
-#: only safe with a guard, so ``test_dashboard_chat.py`` pins each against the
+#: only safe with a guard, so ``test_dashboard_chat_empty_response.py`` pins each against the
 #: ACP constant it mirrors — the test tree is outside the gate's scope, so the
 #: pin can import what this module may not.
 _STOP_END_TURN = "end_turn"
