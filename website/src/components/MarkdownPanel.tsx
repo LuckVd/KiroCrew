@@ -397,7 +397,7 @@ export default memo(forwardRef<MarkdownPanelHandle, Props>(function MarkdownPane
   } = useMarkdownPanelDisk({ filePath, content, binary, partial, liveWatch, editing, dirty, dirtyRef, active, qc, onDiskContent, onContentChange, reportActionError })
 
 
-  const { diffData, diffChecking, diffQueryError, originalContent, gitPatch, diffUnavailable, diffViewShown, zeroDiff, diffErrorText, diffNoBaselineText } =
+  const { diffData, diffChecking, diffQueryError, originalContent, comparedContent, gitPatch, diffUnavailable, diffViewShown, zeroDiff, diffErrorText, diffNoBaselineText } =
     useMarkdownPanelDiff({ filePath, isRichType, canTextDiff, partial, editing, dirty, diffMode, content, initialDiffMode, onDiffModeChange, setDiffMode, diskTickRef, diffStartTickRef, patchOwedTick, qc })
   // Every failure the panel owns, rendered in ONE place (both layouts mount it
   // under the header). The three background reads used to fail silently: a
@@ -1149,8 +1149,8 @@ export default memo(forwardRef<MarkdownPanelHandle, Props>(function MarkdownPane
 
   // Diff-mode +N/-N stats over the same original/modified pair the diff view shows.
   const diffStats = useMemo(
-    () => (gitPatch != null ? countDiffStats(gitPatch) : countLines(originalContent, content)),
-    [gitPatch, originalContent, content],
+    () => (gitPatch != null ? countDiffStats(gitPatch) : countLines(originalContent, comparedContent)),
+    [gitPatch, originalContent, comparedContent],
   )
   // A rich-type tab's diff toggle lives in the ⋯ menu (the header holds no
   // diff button for it), so while its diff is on, the header carries this chip
@@ -1293,7 +1293,7 @@ export default memo(forwardRef<MarkdownPanelHandle, Props>(function MarkdownPane
             {!showBinaryCard && diffNoBaselineText && !editing && <ZeroDiffNotice message={diffNoBaselineText} onExitDiff={readOnly ? undefined : toggleDiffMode} />}
             {/* A background refetch keeps the cached diff on screen; only a first fetch blanks it. */}
             {!showBinaryCard && !zeroDiff && !diffUnavailable && !(diffChecking && diffData == null) && canTextDiff && (
-              <DiffViewBlock flush sideBySide={diffSplit} diffMode={diffViewShown} fileName={fileName} originalContent={originalContent} content={content} gitPatch={gitPatch} lineNums={lineNums} wordWrap={wordWrap} collapseUnchanged={collapseUnchanged} />
+              <DiffViewBlock flush sideBySide={diffSplit} diffMode={diffViewShown} fileName={fileName} originalContent={originalContent} content={comparedContent} gitPatch={gitPatch} lineNums={lineNums} wordWrap={wordWrap} collapseUnchanged={collapseUnchanged} />
             )}
             {!showBinaryCard && !zeroDiff && (!diffUnavailable || editing) && !diffViewShown && <ContentRenderer flush isRichType={isRichType} fileType={fileType} filePath={filePath} content={content} editing={editing} lang={lang} lineNums={lineNums} wordWrap={wordWrap} onChange={handleChange} onSave={handleSave}
               diffBase={diffMode && editing ? (originalContent || null) : undefined} diffSplit={diffSplit} diffExpandUnchanged={!collapseUnchanged}
@@ -1380,7 +1380,7 @@ export default memo(forwardRef<MarkdownPanelHandle, Props>(function MarkdownPane
               <div className="p-3"><ErrorNotice message={diffErrorText} askAgent={!dirty} testId="markdown-panel-diff-compute-error-fullscreen" /></div>
             )}
             {!showBinaryCard && diffNoBaselineText && !editing && <ZeroDiffNotice message={diffNoBaselineText} onExitDiff={readOnly ? undefined : toggleDiffMode} />}
-            {!showBinaryCard && !zeroDiff && !diffUnavailable && !(diffChecking && diffData == null) && canTextDiff && <DiffViewBlock sideBySide={diffSplit} diffMode={diffViewShown} fileName={fileName} originalContent={originalContent} content={content} gitPatch={gitPatch} lineNums={lineNums} wordWrap={wordWrap} collapseUnchanged={collapseUnchanged} />}
+            {!showBinaryCard && !zeroDiff && !diffUnavailable && !(diffChecking && diffData == null) && canTextDiff && <DiffViewBlock sideBySide={diffSplit} diffMode={diffViewShown} fileName={fileName} originalContent={originalContent} content={comparedContent} gitPatch={gitPatch} lineNums={lineNums} wordWrap={wordWrap} collapseUnchanged={collapseUnchanged} />}
             {!showBinaryCard && !zeroDiff && (!diffUnavailable || editing) && !diffViewShown && <ContentRenderer isRichType={isRichType} fileType={fileType} filePath={filePath} content={content} editing={editing} lang={lang} lineNums={lineNums} wordWrap={wordWrap} onChange={handleChange} onSave={handleSave}
               diffBase={diffMode && editing ? (originalContent || null) : undefined} diffSplit={diffSplit} diffExpandUnchanged={!collapseUnchanged}
               previewRef={fullscreenPreviewRef} displayContent={displayContent} isMarkdown={isMarkdown} previewStyle={mdPreviewStyle} editorRef={setRevealEditor} />}

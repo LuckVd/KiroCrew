@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef, useCallback, type Dispatch, type MutableRefObject, type SetStateAction } from 'react'
+import { useState, useEffect, useMemo, useRef, useCallback, type Dispatch, type MutableRefObject, type SetStateAction } from 'react'
 import { useQuery, type QueryClient } from '@tanstack/react-query'
 import { useVisibleTabCatchUp, settleCatchUp, type CatchUpLatch } from '../hooks/useVisibleTabCatchUp'
 import type { FileWatchFrame } from '../hooks/useFileWatch'
@@ -459,6 +459,12 @@ export function useMarkdownPanelDiff({ filePath, isRichType, canTextDiff, partia
     void qc.invalidateQueries({ queryKey: ['file-diff', filePath] })
   }, [diffMode, diffChecking, patchOwedTick, filePath, qc, diffStartTickRef])
   const originalContent = diffData?.original ?? ''
+  // `original` has LF line endings only: the gateway reads git's output with
+  // universal newlines. The buffer keeps the file's own CRLF or lone CR, so
+  // the body-pair diff compares HEAD with a copy of the buffer read the same
+  // way, or such a file diffs as every line changed. Only the comparison reads
+  // this copy: the buffer, and so what a save writes, is untouched.
+  const comparedContent = useMemo(() => content.replace(/\r\n?/g, '\n'), [content])
   // A partial buffer (capped, redacted or lossily decoded read) is not the file
   // on disk, so comparing it with the WHOLE HEAD body invents changes: past a
   // capped read's end every HEAD line reads as deleted, and the real edits
@@ -493,7 +499,7 @@ export function useMarkdownPanelDiff({ filePath, isRichType, canTextDiff, partia
   // BOTH view and edit modes — show a notice instead. Editing past the
   // baseline (content diverges) flips this off automatically.
   const zeroDiff = diffMode && !diffChecking && diffData != null && !diffUnavailable
-    && (gitPatch != null ? !gitPatch : originalContent === content)
+    && (gitPatch != null ? !gitPatch : originalContent === comparedContent)
   // Resolved in render position so a language switch re-renders it; the notice
   // reuses ZeroDiffNotice so the "Show full file" escape hatch is identical
   // across all three empty-diff states.
@@ -532,5 +538,5 @@ export function useMarkdownPanelDiff({ filePath, isRichType, canTextDiff, partia
     }
   }, [canTextDiff, isRichType, diffData, filePath, initialDiffMode, onDiffModeChange, setDiffMode])
 
-  return { diffData, diffChecking, diffQueryError, originalContent, gitPatch, diffUnavailable, diffViewShown, zeroDiff, diffErrorText, diffNoBaselineText }
+  return { diffData, diffChecking, diffQueryError, originalContent, comparedContent, gitPatch, diffUnavailable, diffViewShown, zeroDiff, diffErrorText, diffNoBaselineText }
 }
