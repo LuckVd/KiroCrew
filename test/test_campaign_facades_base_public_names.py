@@ -385,6 +385,14 @@ _BASE_PUBLIC_NAMES: dict[str, frozenset[str]] = {
         voice_runtime_workspace_conflict warm_backend wrap_argv wrap_argv_async
         wrapped_by_crew_sandbox
         """.split()),
+    "kiro_crew.knowledge.store": frozenset("""
+        AUTO_ADDED_PROP AUTO_REGISTRATION_RETIRED_PROP BUNDLE_STATE_KEY_COL ContentStats
+        FTS_INDEX_VERSION IngestionGate KnowledgeBundleError KnowledgeStore
+        MAINTENANCE_WAIT_SECS OnLoopDBGuard STORE_STRICT_ENV SidecarNotMovable SimpleDiGraph
+        SourceContentStats fts5_cjk_match_groups fts5_segment_for_index is_auto_registered
+        is_damaged_database_error logger prepare_owner_only_sqlite quarantine_sqlite_file
+        sqlite3
+        """.split()),
 }
 
 #: Facade -> ``{name: module holding it}`` for each base name the facade re-binds by import.
@@ -584,6 +592,26 @@ _REBOUND: dict[str, dict[str, str]] = {
         "sandbox_mount_sweep": "kiro_crew",
         "sandbox_plan": "kiro_crew",
         "sandbox_seatbelt": "kiro_crew",
+    },
+    "kiro_crew.knowledge.store": {
+        "AUTO_ADDED_PROP": "kiro_crew.knowledge.store_parts.source_rows",
+        "AUTO_REGISTRATION_RETIRED_PROP": "kiro_crew.knowledge.store_parts.source_rows",
+        "BUNDLE_STATE_KEY_COL": "kiro_crew.knowledge.store_parts.bundle_transfer",
+        "ContentStats": "kiro_crew.knowledge.store_parts.content_stats",
+        "FTS_INDEX_VERSION": "kiro_crew.knowledge.store_parts.fulltext_index",
+        "KnowledgeBundleError": "kiro_crew.knowledge.store_parts.bundle_transfer",
+        "OnLoopDBGuard": "kiro_crew.on_loop_db",
+        "STORE_STRICT_ENV": "kiro_crew.on_loop_db",
+        "SidecarNotMovable": "kiro_crew.sqlite_quarantine",
+        "SimpleDiGraph": "kiro_crew.knowledge.store_parts.entity_graph",
+        "SourceContentStats": "kiro_crew.knowledge.store_parts.content_stats",
+        "fts5_cjk_match_groups": "kiro_crew._sqlite_compat",
+        "fts5_segment_for_index": "kiro_crew._sqlite_compat",
+        "is_auto_registered": "kiro_crew.knowledge.store_parts.source_rows",
+        "is_damaged_database_error": "kiro_crew.sqlite_quarantine",
+        "prepare_owner_only_sqlite": "kiro_crew.owner_only_files",
+        "quarantine_sqlite_file": "kiro_crew.sqlite_quarantine",
+        "sqlite3": "kiro_crew._sqlite_compat",
     },
 }
 
