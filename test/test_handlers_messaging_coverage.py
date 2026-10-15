@@ -276,6 +276,15 @@ class TestApiSpawn:
         assert _run(mod.api_spawn, req).status == 200
         assert mgr.spawn.call_args.kwargs["batch_total"] == 0
 
+    @pytest.mark.parametrize("raw", ["1e999", "-1e999"])
+    def test_infinite_batch_total_falls_back_to_zero(self, raw: str) -> None:
+        """JSON reads ``1e999`` as an infinite float, which ``int`` cannot convert."""
+        mgr = _mgr()
+        mgr.spawn.return_value = _info()
+        body = json.loads('{"task": "x", "batch_id": "b1", "batch_total": %s}' % raw)
+        assert _run(mod.api_spawn, _Req(_state(subagents=mgr), body)).status == 200
+        assert mgr.spawn.call_args.kwargs["batch_total"] == 0
+
     def test_a_deferred_row_answers_queued_with_the_gate_reason(self) -> None:
         """The memory guard parked the row: the caller is told it WAITS and why,
         under the same ``id`` (the wave reconcile and the run card key on it)."""
@@ -560,6 +569,15 @@ class TestApiSpawnLost:
         args = mgr.record_lost_submission.call_args.args
         assert args[0] == "w1" and args[1] == 0
         assert len(args[2]) == 300
+
+    @pytest.mark.parametrize("raw", ["1e999", "-1e999"])
+    def test_infinite_batch_total_reconciles_as_zero(self, raw: str) -> None:
+        """JSON reads ``1e999`` as an infinite float, which ``int`` cannot convert."""
+        mgr = _mgr()
+        body = json.loads('{"batch_id": "w1", "batch_total": %s}' % raw)
+        resp = _run(mod.api_spawn_lost, _Req(_state(subagents=mgr), body))
+        assert _payload(resp) == {"status": "reconciled", "batch_id": "w1"}
+        assert mgr.record_lost_submission.call_args.args[1] == 0
 
 
 class TestApiSpawnMarkCollected:
