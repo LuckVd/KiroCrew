@@ -189,6 +189,8 @@ export interface SidebarScope {
   folderCleanupOpen: boolean
   setFolderCleanupOpen: SetState<boolean>
   setManageTagsOpen: SetState<boolean>
+  broadcastOpen: boolean
+  setBroadcastOpen: SetState<boolean>
   filterSortOpen: boolean
   setFilterSortOpen: SetState<boolean>
   folders: ChatFolder[]
