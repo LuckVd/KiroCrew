@@ -1452,11 +1452,13 @@ Four properties are load-bearing:
   (identified by `thread_id`, which `receive` sets to the thread's own snowflake,
   the same value it uses as the conversation id, and leaves unset for a DM) is
   checked against `_allowed_threads`, the set `receive` itself gates inbound on,
-  so outbound is exactly as tight as inbound. That also settles the auto-created
-  thread: those ids are registered in memory only, so after a restart such a thread
-  cannot drive a turn either, and continuing to post into it would make outbound
-  the more permissive of the two. A **DM** route is checked against `_allowed` via
-  the principal.
+  so outbound is exactly as tight as inbound. Auto-created thread grants are stored
+  as `thread_id -> parent_channel_id` under the crew home's protected
+  `trust/discord_auto_threads.json`; startup restores a grant only while its
+  parent remains in `allowed_channel_ids`. This keeps inbound and proactive
+  delivery aligned across restarts without treating the durable record as a
+  replacement for the current channel allow-list. A **DM** route is checked against
+  `_allowed` via the principal.
 
   **Webex** has the same two, and a group space is why: a **space** route is
   recognised by its conversation id being in `_allowed_rooms` while
@@ -3534,11 +3536,15 @@ handled in the shared channel itself: with `discord.auto_thread` enabled, the
 transport creates a public thread from that message and dispatches the turn
 there. That runtime widening is SEL-audited as a GRANT
 (`discord_transport.auto_thread` / `thread_authorized`), not merely on refusal: a
-new authorized disclosure boundary appears at runtime, and without the record the
-log shows the turns that ran in the thread but never the decision that admitted
-it. The allow-set is deliberately unbounded, because each entry is a thread an
-already-approved user created, and evicting one would silently stop answering in
-a conversation they are still holding. Existing thread IDs still require a REST channel lookup confirming
+new authorized disclosure boundary appears at runtime, and without this grant audit
+the log shows the turns that ran in the thread but never the decision that admitted
+it. Auto-created grants are persisted under the crew home's protected
+`trust/discord_auto_threads.json` as `thread_id -> parent_channel_id`; startup
+restores only grants whose parent remains in `allowed_channel_ids`, and an
+unreadable or malformed store grants nothing. The allow-set is deliberately
+unbounded, because each entry is a thread an already-approved user created, and
+evicting one would silently stop answering in a conversation they are still
+holding. Existing thread IDs still require a REST channel lookup confirming
 Discord type 10/11/12. An approved thread is a shared disclosure
 boundary: every member who can view it can read agent/tool output. Enabling any
 thread also means Discord delivers message content from every server channel

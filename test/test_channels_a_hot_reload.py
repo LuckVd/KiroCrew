@@ -413,12 +413,15 @@ class TestTelegramDispatcherApplier:
 
 
 class TestDiscordAllowLists:
-    def _transport(self, *, users=("11",), threads=(), channels=()) -> DiscordTransport:
+    def _transport(
+        self, *, users=("11",), threads=(), channels=(), auto_thread_ids=()
+    ) -> DiscordTransport:
         return DiscordTransport(
             FakeClient(),
             allowed_user_ids=list(users),
             allowed_thread_ids=list(threads),
             allowed_channel_ids=list(channels),
+            auto_thread_ids=list(auto_thread_ids),
         )
 
     def _section(self, **over) -> SimpleNamespace:
@@ -441,6 +444,11 @@ class TestDiscordAllowLists:
         t._allowed_threads.add("t-runtime")
         t.reconfigure(self._section(allowed_thread_ids=["t-configured"]))
         assert t._allowed_threads == {"t-configured", "t-runtime"}
+
+    def test_a_persisted_auto_thread_survives_config_reload(self):
+        t = self._transport(auto_thread_ids=("t-persisted",))
+        t.reconfigure(self._section())
+        assert t._allowed_threads == {"t-persisted"}
 
     def test_a_thread_removed_from_the_config_is_dropped(self):
         t = self._transport(threads=("t-configured",))
@@ -480,6 +488,14 @@ class TestDiscordDispatcherApplier:
         d.client = FakeClient()
         d.transport = None
         return d
+
+    def test_a_persisted_auto_thread_survives_config_reload(self):
+        d = self._dispatcher(auto_thread_ids={"t-persisted"})
+        assert "t-persisted" in d._allowed_threads
+
+        apply(d, change(cfg_with("discord", allowed_thread_ids=[]), "discord"))
+
+        assert d._allowed_threads == {"t-persisted"}
 
     def test_a_removed_user_is_refused_by_the_dispatcher_after_a_reload(self):
         """``_authorized`` gates interactions, which never reach transport.receive."""

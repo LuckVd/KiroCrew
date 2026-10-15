@@ -72,6 +72,7 @@ class DiscordInboundMessage(InboundMessage):
 # A dispatch callback consumes a normalized, already-authorized message and
 # drives a turn. The gateway supplies the real implementation.
 DispatchFn = Callable[[InboundMessage], Awaitable[None]]
+PersistAutoThreadFn = Callable[[str, str], Awaitable[None]]
 
 # Discord's capabilities: edit-based streaming, a 2000-char cap (we chunk at
 # 1900 for headroom), up to 5 buttons per action row, emoji reactions (steer-ack
@@ -125,7 +126,9 @@ class DiscordTransport(MessagingTransport):
         allowed_thread_ids: Iterable[str] = (),
         allowed_channel_ids: Iterable[str] = (),
         auto_thread: bool = True,
+        auto_thread_ids: Iterable[str] = (),
         on_thread_created: Callable[[str], None] | None = None,
+        persist_auto_thread: PersistAutoThreadFn | None = None,
         dispatch: DispatchFn | None = None,
     ) -> None:
         self._client = client
@@ -138,14 +141,14 @@ class DiscordTransport(MessagingTransport):
         # replies -- not just for button interactions (tracked separately on the
         # dispatcher's own allow-set). A frozenset here would silently strand
         # every reply the user sends into the thread the bot just created.
-        self._allowed_threads: set[str] = {str(t) for t in allowed_thread_ids}
-        # The subset of ``_allowed_threads`` that came from config.json, so a
-        # reload can replace those without dropping the threads this process
-        # promoted at runtime (see ``reconfigure``).
-        self._configured_threads: frozenset[str] = frozenset(self._allowed_threads)
+        self._allowed_threads: set[str] = {str(t) for t in (*allowed_thread_ids, *auto_thread_ids)}
+        # Only config.json threads are replaced on reload. Persisted or
+        # auto-created threads are runtime grants and survive config refreshes.
+        self._configured_threads: frozenset[str] = frozenset(str(t) for t in allowed_thread_ids)
         self._allowed_channels: frozenset[str] = frozenset(str(c) for c in allowed_channel_ids)
         self._auto_thread = auto_thread
         self._on_thread_created = on_thread_created
+        self._persist_auto_thread = persist_auto_thread
         self._dispatch = dispatch
         self.capabilities = DISCORD_CAPABILITIES
         # The rosters live here, and the REST ladder's waits live in the client, so
@@ -355,10 +358,10 @@ class DiscordTransport(MessagingTransport):
         DM arm and be refused for want of a principal. Snowflakes are unique, so a
         DM channel id cannot collide into this set.
 
-        Consulting the thread set keeps outbound exactly as tight as inbound, which
-        also settles the auto-created case: those ids are registered in memory only,
-        so after a restart such a thread cannot drive a turn either, and
-        continuing to post into it would make outbound the more permissive of the two.
+        Consulting the thread set keeps outbound exactly as tight as inbound.
+        Auto-created thread ids are restored from the durable authorization store
+        only while their parent remains in ``allowed_channel_ids``, so inbound and
+        proactive sends retain the same restart behavior and revocation boundary.
         A thread REMOVED from the roster falls through to the DM arm, where a forum
         session key names no principal, so revocation still refuses it.
 
@@ -582,6 +585,23 @@ class DiscordTransport(MessagingTransport):
                     return
                 thread_id = created
                 conversation_id = created
+                # Persist before publishing the grant to either authorization
+                # set. If the write fails, the visible thread was created but is
+                # not admitted; overwriting a corrupt store would erase other
+                # still-valid runtime grants.
+                if self._persist_auto_thread is not None:
+                    try:
+                        await self._persist_auto_thread(created, inbound.channel_id)
+                    except Exception:
+                        logger.exception("discord: could not persist auto-thread authorization")
+                        sel().log_api_access(
+                            caller=inbound.user_id,
+                            operation="discord_transport.auto_thread",
+                            outcome="thread_authorization_persist_failed",
+                            source="discord",
+                            resources=f"channel={inbound.channel_id},thread={created}",
+                        )
+                        return
                 # Authorize the thread transport-side FIRST: this is the set
                 # ``receive`` itself checks for every subsequent message
                 # (`elif inbound.channel_id not in self._allowed_threads` below).

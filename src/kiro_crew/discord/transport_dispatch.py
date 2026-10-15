@@ -415,6 +415,7 @@ class DiscordDispatcher:
         cfg: "KiroCrewConfig",
         allowed_user_ids: set[str],
         allowed_thread_ids: set[str] | None = None,
+        auto_thread_ids: set[str] | None = None,
         agent: str | None = None,
         conv_log: "ConversationLog | None" = None,
         approval_mode: str = APPROVAL_INTERACTIVE,
@@ -423,11 +424,10 @@ class DiscordDispatcher:
         self.ctx_builder = ctx_builder
         self.cfg = cfg
         self._allowed = set(allowed_user_ids or ())
-        self._allowed_threads = set(allowed_thread_ids or ())
-        # The subset of ``_allowed_threads`` that came from config.json, so a
-        # reload can tell a thread an operator removed from a thread this process
-        # promoted at runtime (see ``register_allowed_thread``).
-        self._configured_threads: frozenset[str] = frozenset(self._allowed_threads)
+        self._allowed_threads = set(allowed_thread_ids or ()) | set(auto_thread_ids or ())
+        # Only config.json threads are replaced on reload. Persisted or
+        # auto-created threads are runtime grants and survive config refreshes.
+        self._configured_threads: frozenset[str] = frozenset(allowed_thread_ids or ())
         self.agent = agent
         self.conv_log = conv_log
         self.approval_mode = approval_mode

@@ -113,7 +113,10 @@ Omit `allowed_thread_ids` and `allowed_channel_ids`, or leave them empty, for
 DMs only. `allowed_channel_ids` lets an approved user start a turn from a shared
 server channel; the turn itself always runs in a public thread opened from that
 message, so `auto_thread` (default `true`) must stay on for those channels to
-work at all. `soft_threshold_pct` defaults to `80` and is clamped to 1-100; `reactions_enabled` defaults to `true`, `show_thinking` defaults to `false`, and `session_folder` defaults to empty. The bot token belongs in the `DISCORD_BOT_TOKEN` credential (env / `.env` / credential store), not in `config.json`, which an agent can read. A `discord.bot_token` value is still honoured as a legacy fallback, but the credential takes precedence and is the supported place for it.
+work at all. Threads created this way remain authorized across gateway restarts
+only while their parent channel is still in `allowed_channel_ids`; you do not
+need to add each generated thread ID to `allowed_thread_ids` manually.
+`soft_threshold_pct` defaults to `80` and is clamped to 1-100; `reactions_enabled` defaults to `true`, `show_thinking` defaults to `false`, and `session_folder` defaults to empty. The bot token belongs in the `DISCORD_BOT_TOKEN` credential (env / `.env` / credential store), not in `config.json`, which an agent can read. A `discord.bot_token` value is still honoured as a legacy fallback, but the credential takes precedence and is the supported place for it.
 
 ### 6. Restart the gateway
 
@@ -140,7 +143,7 @@ Portal or clear the thread allow-list and restart in DM-only mode.
 | Gateway closes with 4004 | Bad or reset token | Reset the token, update `.env`, restart |
 | Gateway closes with 4014 after adding a thread | Message Content Intent is disabled | Enable it on the Bot page, then restart |
 | DMs are ignored | User ID is missing/wrong | Add the numeric user ID; inspect `kirocrew security events` |
-| Thread is ignored but DMs work | Thread ID missing/wrong, bot cannot view it, or Message Content Intent is off | Copy the thread's Channel ID, check permissions/membership, enable the intent, restart |
+| Thread is ignored but DMs work | Thread ID missing/wrong, its parent channel is no longer allowed, bot cannot view it, or Message Content Intent is off | Check the parent is still in `allowed_channel_ids`, verify permissions/membership, enable the intent, and inspect security events |
 | Parent channel is ignored | The channel is not in `allowed_channel_ids` | Use an approved thread, or add the parent channel ID to `allowed_channel_ids` to open public turn threads |
 | Bot can read but cannot reply in a thread | Missing guild permission or private-thread membership | Grant View Channel, Read Message History, Send Messages in Threads; add the bot to private threads |
 | Logs are silent on successful connection | `agent.log_level` is `WARNING` | Trust the Connected badge or lower the log level |

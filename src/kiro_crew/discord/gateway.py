@@ -18,6 +18,7 @@ import asyncio
 import logging
 from typing import TYPE_CHECKING
 
+from kiro_crew.discord.auto_thread_store import DiscordAutoThreadStore
 from kiro_crew.discord.client import DiscordClient
 from kiro_crew.discord.commands import application_command_payload
 from kiro_crew.discord.transport import DiscordTransport
@@ -119,6 +120,9 @@ async def maybe_start_discord(orch: "GatewayOrchestrator") -> "DiscordClient | N
         allowed_ids: set[str] = set(getattr(orch, "_discord_allowed_user_ids", []) or [])
         allowed_threads: set[str] = set(getattr(orch, "_discord_allowed_thread_ids", []) or [])
         allowed_channels: set[str] = set(getattr(orch, "_discord_allowed_channel_ids", []) or [])
+        auto_thread_store = DiscordAutoThreadStore()
+        auto_thread_parents = await asyncio.to_thread(auto_thread_store.load, allowed_channels)
+        auto_thread_ids = set(auto_thread_parents)
         auto_thread = bool(getattr(orch, "_discord_auto_thread", True))
         if not allowed_ids:
             logger.warning(
@@ -134,6 +138,7 @@ async def maybe_start_discord(orch: "GatewayOrchestrator") -> "DiscordClient | N
             cfg=orch._cfg,
             allowed_user_ids=allowed_ids,
             allowed_thread_ids=allowed_threads,
+            auto_thread_ids=auto_thread_ids,
             agent=None,
             conv_log=getattr(orch, "conv_log", None),
             approval_mode=_resolve_approval_mode(orch),
@@ -141,7 +146,7 @@ async def maybe_start_discord(orch: "GatewayOrchestrator") -> "DiscordClient | N
         client = DiscordClient(
             token=bot_token,
             on_interaction=dispatcher.on_interaction,
-            enable_guild_threads=bool(allowed_threads or allowed_channels),
+            enable_guild_threads=bool(allowed_threads or auto_thread_ids or allowed_channels),
         )
 
         async def _dispatch(message: InboundMessage) -> None:
@@ -153,7 +158,9 @@ async def maybe_start_discord(orch: "GatewayOrchestrator") -> "DiscordClient | N
             allowed_thread_ids=allowed_threads,
             allowed_channel_ids=allowed_channels,
             auto_thread=auto_thread,
+            auto_thread_ids=auto_thread_ids,
             on_thread_created=dispatcher.register_allowed_thread,
+            persist_auto_thread=auto_thread_store.record,
             dispatch=_dispatch,
         )
         # Inbound: Gateway WS -> transport.receive (authorize + normalize)
