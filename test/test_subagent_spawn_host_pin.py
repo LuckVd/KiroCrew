@@ -111,6 +111,10 @@ class TestTheSpawnHostMemoryPinRatchet:
         # the host-memory reading itself for as long as it is open, so every
         # module that spawns through it is pinned without naming the fixture.
         "overload_fakes.py": "fake harness pins the host readings itself",
+        # A shared run harness, not a collected test module: a module-level
+        # ``pytestmark`` here would mark no test. Its one importer,
+        # ``test_subagent_stop_reason_consistency.py``, carries the pin.
+        "subagent_stop_reason_helpers.py": "harness; its importer pins the host readings",
     }
 
     def test_every_spawning_module_is_pinned_or_excluded(self) -> None:
