@@ -78,7 +78,7 @@ describe('Blocked link chip', () => {
     const { getByTestId, container } = render(<MarkdownRenderer content={PH('reviews.corp.example')} blockedLinks={[link()]} slotKey="s1" />)
     fireEvent.click(getByTestId('blocked-link-inspect'))
     const card = getByTestId('blocked-link-card')
-    expect(card.textContent).toContain('This link is blocked. It cannot open or preview.')
+    expect(card.textContent).toContain('Blocked links to this host in this reply')
     expect(card.textContent).toContain('Destination: reviews.corp.example')
     expect(card.textContent).toContain('Reason: the query has 290 characters.')
     expect(getByTestId('blocked-link-review').textContent).toContain('Review full URL')
@@ -265,11 +265,11 @@ describe('Blocked link chip', () => {
       }
     })
 
-    it('keeps main\'s title and per-entry Destination line when the card lists several links', () => {
+    it('keeps the host title and per-entry Destination line when the card lists several links', () => {
       const { getAllByTestId, getByTestId } = render(<MarkdownRenderer content={content} blockedLinks={records} slotKey="s1" />)
       fireEvent.click(getAllByTestId('blocked-link-inspect')[0])
       const card = getByTestId('blocked-link-card')
-      expect(card.textContent).toContain('This link is blocked. It cannot open or preview.')
+      expect(card.textContent).toContain('Blocked links to this host in this reply')
       expect(card.textContent?.match(/Destination: reviews\.corp\.example/g)).toHaveLength(4)
       expect(card.textContent).toContain('Reason: the query has 290 characters.')
     })

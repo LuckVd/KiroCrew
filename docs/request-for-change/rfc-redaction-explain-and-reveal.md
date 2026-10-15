@@ -276,15 +276,33 @@ recorded), and the rendered text can hold more chips than the saved text has
 placeholders (an entity-encoded or backslash-escaped bracket renders to
 placeholder text), so neither a record count nor a single record proves which
 record a chip stands for. The chip therefore never shows a path or a query
-length, even when the host has exactly one record. The details card explains
-each record of the host with its reason and actions; when the host has several
-records it lists each under its own address, and a kept full address is shown
-only there, after the reader asks for it. Pairing placeholders with records is
-not a goal: proving that order cannot be made sound on the production
-redaction pipeline. The path a record carries (kept only when it passes the
-same checks that blocked the link, since a link can carry smuggled data in its
-path as easily as in its query) therefore appears only in that list of several
-records, where no entry is presented as the link clicked. There is one
+length, even when the host has exactly one record. The details card lists
+each record of the host under its own address, with its reason and actions,
+and a kept full address is shown only there, after the reader asks for it. A
+lone record is listed the same way as several: the card's title speaks of the
+host's blocked links in the reply ("Blocked links to this host in this reply")
+and never says "this link", because one record on the host does not prove it
+is the link clicked. Pairing placeholders with records is not a goal: proving
+that order cannot be made sound on the production redaction pipeline. The
+path a record carries (kept only when it passes the same checks that blocked
+the link, since a link can carry smuggled data in its path as easily as in its
+query) therefore appears only in that list, where no entry is presented as
+the link clicked.
+
+A link removed in parts can leave the rest of its query glued to the
+placeholder: a presigned link split at `&X-Amz-Date` is redacted up to the
+split, and `&X-Amz-Date=…&X-Amz-Signature=…` follows the placeholder as text.
+That tail is the rest of the removed link, not prose, so the renderer takes it
+into the chip: text that starts right after a placeholder with `?` or `&`, a
+parameter name and `=`, up to whitespace, an angle bracket, a quote or a
+square bracket, without the punctuation that closes a sentence. It is not
+shown beside the chip, it is never an anchor, and the card does not show it
+either. Anything else after a placeholder stays as written, and when the host
+has no record the placeholder and its tail stay as written text. The fold is
+display only and redacts nothing: the saved reply, a copied message and channel
+posts still carry the tail exactly as they do without it, and the redaction and
+the credential checks are unchanged. Removing the tail from the saved text is
+redactor work, tracked separately. There is one
 precedent for keeping a URL in meta: the consent link for a connected server
 (`oauth_url`) is preserved only when it passes two checks. Anything kept is
 still text an agent wrote, so the chip escapes it and never makes it an

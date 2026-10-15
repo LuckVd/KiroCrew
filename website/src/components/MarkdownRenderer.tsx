@@ -589,6 +589,7 @@ const MD_COMPONENTS = {
         domain={String(p?.domain ?? '')}
         placeholder={String(p?.placeholder ?? '')}
         block={String(p?.block ?? '')}
+        tail={String(p?.tail ?? '')}
       />
     )
   },

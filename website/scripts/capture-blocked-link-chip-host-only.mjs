@@ -11,9 +11,10 @@
  * The chip must name the host alone in both: no path, no query length.
  *
  * ASSERTS before shooting: three chips, every `blocked-link-target` equals its
- * host, no `blocked-link-query` exists, and the lone record's card does not
- * name `/other-a` as the link -- a stale dist fails the run instead of
- * producing a lying screenshot.
+ * host, no `blocked-link-query` exists, the presigned link's query tail is not
+ * shown beside its chip, and the lone record's card lists `/other-a` under its
+ * own address below a title that never says "this link" -- a stale dist fails
+ * the run instead of producing a lying screenshot.
  *   01 dark  -> the reply with the three chips, the forged chip's card open;
  *               then `-withheld-card` with the presigned-link chip's card open
  *   02 light -> same two frames, light theme
@@ -106,6 +107,7 @@ async function capture(browser, base, theme, name) {
   const hosts = [oneOne.blocked_links[0].domain, FORGED_HOST, FORGED_HOST]
   if (JSON.stringify(targets) !== JSON.stringify(hosts)) throw new Error(`chip targets ${JSON.stringify(targets)} != hosts ${JSON.stringify(hosts)}`)
   if (await page.locator('[data-testid="blocked-link-query"]').count() !== 0) throw new Error('a chip still shows a query length')
+  if ((await page.locator('main').textContent())?.includes('X-Amz-Date')) throw new Error('the presigned query tail still runs on beside its chip')
 
   // Open the forged chip's card: it lists the one real record under its own
   // address, which the chip beside it never claimed.
@@ -116,13 +118,16 @@ async function capture(browser, base, theme, name) {
   await page.screenshot({ path: `${OUT}/${name}.png` })
   console.log('wrote', `${OUT}/${name}.png`)
 
-  // Close it and open the presigned-link chip's card: the lone record's full
-  // address is withheld, and no surface names its path as the removed link.
+  // Close it and open the presigned-link chip's card: the lone record is listed
+  // under its own address, its full address is withheld, and the title never
+  // presents it as the clicked link.
   await inspect.nth(2).click()
   await page.waitForSelector('[data-testid="blocked-link-card"]', { state: 'detached', timeout: 5000 })
   await inspect.nth(0).click()
   await page.waitForSelector('[data-testid="blocked-link-card"]', { timeout: 5000 })
-  if (await page.locator('[data-testid="blocked-link-card"]').getByText('/other-a').count() !== 0) throw new Error('the lone record card names /other-a as the link')
+  const lone = page.locator('[data-testid="blocked-link-card"]')
+  if (await lone.locator('[data-testid="blocked-link-entry-target"]').textContent() !== `${oneOne.blocked_links[0].domain}/other-a`) throw new Error('the lone record is not listed under its own address')
+  if (/this link/i.test((await lone.textContent()) ?? '')) throw new Error('the lone record card still says "this link"')
   if (await page.locator('[data-testid="blocked-link-review"]').count() !== 0) throw new Error('a withheld address offers a full-URL view')
   await page.waitForTimeout(500)
   await page.screenshot({ path: `${OUT}/${name}-withheld-card.png` })

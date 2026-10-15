@@ -1199,15 +1199,18 @@ function linkReason(record: BlockedLink): string {
  * block alone. Chips of one host in one block share its card.
  * `rehypeRedactionMarkers` is the only producer and always sets it.
  */
-export function BlockedLinkChip({ domain, placeholder, block }: {
+export function BlockedLinkChip({ domain, placeholder, block, tail = '' }: {
   domain: string
   placeholder: string
   block: string
+  /** A query tail written right after the placeholder, which the chip takes
+   *  in (see `blockedLinkQueryTail`). Shown as text only when no chip is. */
+  tail?: string
 }) {
   useLanguageGeneration()
   const { blockedLinks, openId, toggle } = useRedactionUi()
   const group = blockedLinksForDomain(blockedLinks, domain)
-  if (group.length === 0) return <>{placeholder}</>
+  if (group.length === 0) return <>{placeholder}{tail}</>
   const id = blockedLinkCardId(domain, block)
   return (
     <span
@@ -1251,7 +1254,7 @@ function MarkedUrl({ url }: { url: string }) {
 type Confirming = null | 'open' | 'allow'
 type Feedback = null | { kind: 'opened' } | { kind: 'allowed'; workspace: string } | { kind: 'undone' }
 
-function BlockedLinkEntry({ record, showTarget, cardId }: { record: BlockedLink; showTarget: boolean; cardId: string }) {
+function BlockedLinkEntry({ record, cardId }: { record: BlockedLink; cardId: string }) {
   const { slotKey, replyKey, messageTs, blockedLinks } = useRedactionUi()
   const hold = useAllowHolds(replyKey).get(record.domain)
   const [confirming, setConfirming] = useState<Confirming>(null)
@@ -1309,11 +1312,9 @@ function BlockedLinkEntry({ record, showTarget, cardId }: { record: BlockedLink;
   }
   return (
     <div data-testid="blocked-link-entry">
-      {showTarget && (
-        <div className="mt-1 font-mono text-[12px]" data-testid="blocked-link-entry-target">
-          {record.path != null ? `${record.domain}${escapeInvisibleChars(record.path)}` : record.domain}
-        </div>
-      )}
+      <div className="mt-1 font-mono text-[12px]" data-testid="blocked-link-entry-target">
+        {record.path != null ? `${record.domain}${escapeInvisibleChars(record.path)}` : record.domain}
+      </div>
       <div className="mb-2 mt-1 text-[13px] leading-5 text-card-fg">
         <Trans i18nKey="components.redaction.link_destination" components={{ host: <code className={CODE}>{record.domain}</code> }} />
         <br />
@@ -1413,12 +1414,14 @@ function BlockedLinkCard({ id }: { id: string }) {
   const group = blockedLinksForDomain(blockedLinks, domain)
   if (group.length === 0) return null
   // The host's distinct blocked links in this reply, in record order: nothing the
-  // reply carries ties a chip to one record, so no entry is put first.
+  // reply carries ties a chip to one record, so no entry is put first, and a
+  // lone record is listed the same way, under its own address, with a title
+  // that speaks of the host's blocked links rather than "this link".
   return (
-    <CardShell id={id} title={i18nT('components.redaction.link_title')} testId="blocked-link-card">
+    <CardShell id={id} title={i18nT('components.redaction.link_title_host')} testId="blocked-link-card">
       {group.map((record, i) => (
         <div key={i} className={i > 0 ? 'mt-2 border-t border-border pt-2' : undefined}>
-          <BlockedLinkEntry record={record} showTarget={group.length > 1} cardId={id} />
+          <BlockedLinkEntry record={record} cardId={id} />
         </div>
       ))}
       <Foot>
@@ -1468,6 +1471,23 @@ export function RedactionCardSlot({ ids }: { ids: string }) {
 
 /** Every credential tag the redactor writes, in the order they occur. */
 export const CREDENTIAL_TAG_RE = /\[REDACTED: (?:encoded )?credential\]/g
+/**
+ * A query tail glued to the end of a blocked-link placeholder: `?` or `&`, a
+ * parameter name and `=`, then everything up to whitespace, an angle bracket,
+ * a quote or a square bracket (so a credential tag after it still renders and
+ * keeps its ordinal). This is what is left when a link is removed in parts,
+ * such as a presigned link split at `&X-Amz-Date`: the rest of the removed
+ * link, not prose of its own.
+ */
+const QUERY_TAIL_RE = /^[?&][A-Za-z0-9._~%+-]+=[^\s<>"'`[\]]*/
+
+/** The query tail right after a placeholder, without the sentence
+ *  punctuation that may close it, or '' when the text goes on otherwise. */
+export function blockedLinkQueryTail(after: string): string {
+  const m = QUERY_TAIL_RE.exec(after)
+  return m ? m[0].replace(/[.,;:!?)]+$/, '') : ''
+}
+
 /** A suspicious-URL placeholder, capturing its domain (a bracketed IPv6
  *  literal first, so the capture never stops inside `[::1]`). */
 export const BLOCKED_LINK_PLACEHOLDER_RE = /\[REDACTED: suspicious URL to (\[[^\]]+\]|[^\]]+)\]/g
@@ -1546,8 +1566,16 @@ export function rehypeRedactionMarkers(options: {
               pieces.push({ type: 'element', tagName: 'cred-tag', properties: { ordinal: String(ordinal), placeholder: m[0] }, children: [] })
               ids.push(`rx-cred-${ordinal}`)
             } else {
-              pieces.push({ type: 'element', tagName: 'blocked-link', properties: { domain: m[1], placeholder: m[0], block: keyOf() }, children: [] })
+              // The chip takes in a query tail glued to its placeholder, so the
+              // rest of a link removed in parts does not run on beside it as
+              // text. It is never an anchor and never reaches the card. Display
+              // only: this redacts nothing, and the saved text keeps the tail.
+              const tail = blockedLinkQueryTail(child.value.slice(m.index + m[0].length))
+              pieces.push({ type: 'element', tagName: 'blocked-link', properties: { domain: m[1], placeholder: m[0], block: keyOf(), tail }, children: [] })
               ids.push(blockedLinkCardId(m[1], keyOf()))
+              last = m.index + m[0].length + tail.length
+              MARKER_RE.lastIndex = last
+              continue
             }
             last = m.index + m[0].length
           }
