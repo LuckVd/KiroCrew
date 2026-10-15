@@ -725,7 +725,7 @@ export default function WebAppArtifactCard({
             type="button"
             onClick={handleTeardown}
             disabled={teardownMut.isPending || isExpired}
-            className="inline-flex items-center gap-1 px-2.5 py-1.5 rounded-md text-[12px] font-medium border border-danger/40 text-danger hover:bg-danger/10 cursor-pointer transition-all disabled:opacity-40 disabled:cursor-not-allowed bg-transparent"
+            className="inline-flex items-center gap-1 px-2.5 py-1.5 rounded-md text-[12px] font-medium border border-danger/40 text-danger hover:text-danger-text hover:bg-danger/10 cursor-pointer transition-all disabled:opacity-40 disabled:cursor-not-allowed bg-transparent"
             title={i18nT('components.webAppArtifactCard.cancel_tear_down_marks_the_deployment_expired_in')}
             aria-label={i18nT('components.webAppArtifactCard.cancel_tear_down')}
           >
@@ -737,7 +737,7 @@ export default function WebAppArtifactCard({
       </div>
 
       {teardownMut.error && (
-        <div className="px-3 py-2 rounded-md border border-danger/40 bg-danger-subtle text-[13px] text-danger">
+        <div className="px-3 py-2 rounded-md border border-danger/40 bg-danger-subtle text-[13px] text-danger-text">
           <strong>{i18nT('components.webAppArtifactCard.teardown_failed')}</strong>{' '}
           {teardownMut.error instanceof Error
             ? teardownMut.error.message

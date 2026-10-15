@@ -191,7 +191,7 @@ export default function TranscriptPanel({
       {full ? (
         <div
           role="status"
-          className="flex-none mx-4 mt-3 rounded-lg border border-danger/20 bg-danger/10 px-3 py-2 text-[12px] text-danger flex items-start gap-2"
+          className="flex-none mx-4 mt-3 rounded-lg border border-danger/20 bg-danger/10 px-3 py-2 text-[12px] text-danger-text flex items-start gap-2"
         >
           <AlertTriangle className="lucide-inline flex-none mt-0.5" />
           <span>{i18nT('apps.meetings.transcript.full')}</span>

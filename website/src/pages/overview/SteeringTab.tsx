@@ -668,7 +668,7 @@ export default function SteeringTab() {
         {createFile.error && (
           <div
             role="alert"
-            className="px-3 py-2 rounded-md bg-danger/10 border border-danger/20 text-[13px] text-danger"
+            className="px-3 py-2 rounded-md bg-danger/10 border border-danger/20 text-[13px] text-danger-text"
           >
             {/* Same code-keyed substitution as the page banner. Without it this
               * surface — the only verb with its own alert — printed the server's
@@ -782,7 +782,7 @@ export default function SteeringTab() {
       </div>
 
       {mutError && !fieldErrorShown && (
-        <div className="mb-3 px-3 py-2 rounded-md bg-danger/10 border border-danger/20 text-[13px] text-danger">
+        <div className="mb-3 px-3 py-2 rounded-md bg-danger/10 border border-danger/20 text-[13px] text-danger-text">
           {conflictError
             ? i18nT(savingConflict
               ? 'pages.overview.steeringTab.conflict_while_editing'

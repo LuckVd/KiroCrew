@@ -908,7 +908,7 @@ function ConnectionCard({
     connected: {
       label: t('pages.connectionsPage.connected'),
       icon: <CheckCircle2 className="w-3.5 h-3.5" aria-hidden="true" />,
-      tone: 'bg-ok-subtle text-ok',
+      tone: 'bg-ok-subtle text-ok-text',
     },
     // Warn tone, not the error tone: an unverifiable state is not a failure. The
     // icon is static on purpose — a spinner would claim a grant is in flight
@@ -921,7 +921,7 @@ function ConnectionCard({
     'needs-attention': {
       label: t('pages.connectionsPage.needs_attention'),
       icon: <AlertTriangle className="w-3.5 h-3.5" aria-hidden="true" />,
-      tone: 'bg-danger-subtle text-danger',
+      tone: 'bg-danger-subtle text-danger-text',
     },
     // Muted, not warn: nothing is wrong with the provider, a step is missing on
     // OUR side. The lock says "this needs a key" without alarming a user who
@@ -1945,7 +1945,7 @@ export default function ConnectionsPage({ servicesEnabled = false }: { servicesE
           </div>}
 
           {isError && (
-            <div role="alert" className="mb-3 rounded-md border border-danger/30 bg-danger-subtle px-3 py-2 text-[12px] text-danger">
+            <div role="alert" className="mb-3 rounded-md border border-danger/30 bg-danger-subtle px-3 py-2 text-[12px] text-danger-text">
               {t('pages.connectionsPage.could_not_load_status')}
             </div>
           )}

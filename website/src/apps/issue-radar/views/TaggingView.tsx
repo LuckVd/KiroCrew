@@ -603,7 +603,7 @@ function Stat({ value, label, sub }: { value: number; label: string; sub?: strin
 
 function Banner({ kind, children }: { kind: 'ok' | 'warn' | 'error'; children: React.ReactNode }) {
   const cls = kind === 'error'
-    ? 'border-danger/40 bg-danger/5 text-danger'
+    ? 'border-danger/40 bg-danger/5 text-danger-text'
     : kind === 'warn'
       ? 'border-border bg-bg-hover text-text'
       : 'border-accent/40 bg-accent-subtle text-accent'

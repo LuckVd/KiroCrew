@@ -144,7 +144,7 @@ export default function TaskDetailPanel({ task, allTasks = [], onClose, onRetry,
         )}
 
         {task.error && (
-          <div className="p-2.5 bg-danger/10 border border-danger/20 rounded-md text-[12px] text-danger">{task.error}</div>
+          <div className="p-2.5 bg-danger/10 border border-danger/20 rounded-md text-[12px] text-danger-text">{task.error}</div>
         )}
         {task.result && (
           <div className="p-2.5 bg-bg-elevated border rounded-md text-[12px] text-text whitespace-pre-wrap max-h-[300px] overflow-auto" style={{ borderColor: 'color-mix(in srgb, var(--ok) 45%, transparent)' }}>{task.result}</div>
