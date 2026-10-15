@@ -191,19 +191,9 @@ def milestones_prompt(rec: dict[str, Any], *, has_mate_tools: bool = True) -> st
         target = member_goals.scrub_text(str(kr.get("target") or ""))
         serves = member_goals.serves_note(rec, kr)
         lines.append(f"- {text} (aiming for: {target}){serves}" if target else f"- {text}{serves}")
-    if rec.get("goals"):
-        lines.extend(
-            [
-                "",
-                *member_goals.goal_lines(
-                    {
-                        "goals": [
-                            {**g, "text": member_goals.scrub_text(g["text"])} for g in rec["goals"]
-                        ]
-                    }
-                ),
-            ]
-        )
+    goals = [{**g, "text": member_goals.scrub_text(g["text"])} for g in rec.get("goals") or []]
+    if goals:
+        lines.extend(["", *member_goals.goal_lines({"goals": goals})])
     lines.append("")
     if any_on:
         lines.append(
@@ -306,20 +296,21 @@ def removed_prompt(rec: dict[str, Any], goal_id: str, *, has_mate_tools: bool = 
     ]
     if orphans:
         lines.extend(["These milestones served only that goal:", *(f"- {o}" for o in orphans), ""])
-    lines.append(
-        "Reply in one or two short sentences, in the user's language: acknowledge the "
-        "removal and stop work that only served it. "
-        + (
-            (
+        if has_mate_tools:
+            follow_up = (
                 "Then propose, with set_key_results (a card, the whole set), dropping or "
                 "relinking the milestones above; the user decides."
-                if has_mate_tools
-                else "Then suggest, in this chat, dropping or relinking the milestones "
+            )
+        else:
+            follow_up = (
+                "Then suggest, in this chat, dropping or relinking the milestones "
                 "above on your Goals tab; the user decides."
             )
-            if orphans
-            else "Ask nothing else."
-        )
+    else:
+        follow_up = "Ask nothing else."
+    lines.append(
+        "Reply in one or two short sentences, in the user's language: acknowledge the "
+        "removal and stop work that only served it. " + follow_up
     )
     return "\n".join(lines)
 

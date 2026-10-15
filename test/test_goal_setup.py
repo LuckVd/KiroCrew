@@ -177,12 +177,33 @@ def test_the_removed_nudge_names_the_goal_and_its_orphaned_milestones() -> None:
         {**rec, "removed_goal": {**rec["removed_goal"], "key_result_ids": ["k2"]}}, GOAL_A["id"]
     )
     assert plain is not None and "set_key_results" not in plain
+    assert plain.endswith("stop work that only served it. Ask nothing else.")
     # No goal left: say the check-ins went off.
     empty = goal_setup.removed_prompt({**rec, "goals": []}, GOAL_A["id"])
     assert empty is not None and "every check-in was switched off" in empty
     # Undone (or superseded by another removal) before the turn runs: nothing.
     assert goal_setup.removed_prompt({**rec, "removed_goal": None}, GOAL_A["id"]) is None
     assert goal_setup.removed_prompt(rec, GOAL_B["id"]) is None
+
+
+def test_every_goal_nudge_quotes_goals_and_milestones_scrubbed() -> None:
+    secret = "AKIAIOSFODNN7EXAMPLE"
+    goal = {"id": "g00000001", "text": f"Rotate {secret} weekly"}
+    other = {"id": "g00000002", "text": f"Audit {secret} usage"}
+    gone = {"id": "g00000003", "text": f"Drop {secret} keys"}
+    kr = {"id": "k1", "text": f"key {secret} gone", "target": f"no {secret}", "goal_ids": []}
+    rec = {
+        "goals": [goal, other],
+        "key_results": [kr],
+        "schedules": {},
+        "removed_goal": {"goal": gone, "index": 2, "at": 1, "key_result_ids": ["k1"]},
+    }
+    for text in (
+        goal_setup.kickoff_prompt(rec, other["id"]),
+        goal_setup.removed_prompt(rec, gone["id"]),
+        goal_setup.milestones_prompt(rec),
+    ):
+        assert text is not None and secret not in text and "[REDACTED" in text
 
 
 class _Slot:
