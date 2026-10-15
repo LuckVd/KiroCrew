@@ -1,10 +1,11 @@
 import React from 'react'
 import { useSearchParams, useLocation, useNavigate } from 'react-router-dom'
-import { ChevronRight } from 'lucide-react'
+import { ChevronDown, ChevronRight } from 'lucide-react'
 import { NavBackBar } from './NavBackBar'
 import { useRegisterNavigationLeaveGuard, usePublishNavigationStake } from './NavigationLeaveGuard'
 import { hasSubSelection, deleteSubSelection, COARSE_TOUCH_TARGET, SUBNAV_PUSH_STATE, toPathSegment, parsePathSegments } from './subNavParams'
 import { useIsMobile } from '../hooks/useIsMobile'
+import { useScrollEdgesY } from '../hooks/useScrollEdges'
 import { useVisualViewport } from '../hooks/useVisualViewport'
 import { useBottomTerminalOpen, useTerminalPosition } from '../hooks/useBottomTerminal'
 import { useTerminalEnabled } from '../utils/terminalRegistry'
@@ -211,6 +212,27 @@ export default function SidePanelLayout({ title, tabs, defaultTab, rememberKey, 
   const location = useLocation()
   const navigate = useNavigate()
   const isMobile = useIsMobile()
+  // "More below" control under the desktop tab list. Settings has twenty
+  // rows, so on a laptop-height window the last few (Developer, Releases,
+  // About) sit below the fold, and the overlay scrollbar stays hidden until
+  // hovered: the list read as complete and a first-time user could not find
+  // Developer. The control shows only while rows are hidden below, in its own
+  // strip outside every row, and a click scrolls the list down. `attachContent`
+  // watches the rows themselves, so a tab appearing or a late font changing a
+  // row's height re-measures too.
+  const [attachTabList, tabListEdges, , attachTabListContent] = useScrollEdgesY<HTMLDivElement>()
+  const tabListRef = React.useRef<HTMLDivElement | null>(null)
+  const setTabList = React.useCallback((node: HTMLDivElement | null) => {
+    tabListRef.current = node
+    attachTabList(node)
+  }, [attachTabList])
+  const scrollTabListDown = () => {
+    const el = tabListRef.current
+    if (!el) return
+    const reduce = typeof window.matchMedia === 'function' && window.matchMedia('(prefers-reduced-motion: reduce)').matches
+    // One list-height less a row, so the last visible row stays on screen.
+    el.scrollBy({ top: Math.max(el.clientHeight - 40, 40), behavior: reduce ? 'auto' : 'smooth' })
+  }
   // Keyboard avoidance for the bottom-float dock. iOS Safari shrinks only the
   // VISUAL viewport when the keyboard opens (the layout viewport `fixed`
   // resolves against keeps its height — see CommandPalette.tsx), so a
@@ -579,7 +601,8 @@ export default function SidePanelLayout({ title, tabs, defaultTab, rememberKey, 
           )}
           {/* Only the tab list scrolls — the title and navTop above and the
             * footer below stay fixed. */}
-          <div className="flex-1 min-h-0 overflow-y-auto scrollbar-overlay scrollbar-overlay-thin flex flex-col gap-0.5">
+          <div ref={setTabList} data-testid="side-panel-tab-list" className="flex-1 min-h-0 overflow-y-auto scrollbar-overlay scrollbar-overlay-thin">
+          <div ref={attachTabListContent} className="flex flex-col gap-0.5">
           {tabs.map((t, i) => (
             <React.Fragment key={t.key}>
               {t.dividerBefore && <div className="h-px bg-border mx-2.5 my-2" role="separator" />}
@@ -612,6 +635,26 @@ export default function SidePanelLayout({ title, tabs, defaultTab, rememberKey, 
             </React.Fragment>
           ))}
           </div>
+          </div>
+          {/* Its own strip under the last row, so it reads as part of the
+            * list's edge, not of any row, and a click on it only scrolls.
+            * Pointer-only on purpose: every row is already in the tab order and
+            * the accessibility tree, and Tab scrolls the hidden ones into view,
+            * so the strip is hidden from both rather than leaving focus on a
+            * control that vanishes once the end of the list is reached. */}
+          {tabListEdges.bottom && (
+            <button
+              type="button"
+              tabIndex={-1}
+              aria-hidden="true"
+              data-testid="side-panel-tab-list-more"
+              onClick={scrollTabListDown}
+              className="shrink-0 flex items-center justify-center gap-1 w-full mt-0.5 py-1 rounded-md border-none bg-transparent text-[12px] text-muted hover:text-text hover:bg-bg-hover cursor-pointer"
+            >
+              {i18nT('components.sidePanelLayout.more_below')}
+              <ChevronDown size={14} />
+            </button>
+          )}
           {footer && <div className="shrink-0 pt-3 px-2.5">{footer}</div>}
         </nav>}
 
