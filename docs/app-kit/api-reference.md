@@ -171,7 +171,11 @@ card the main chat shows: a download card, or an inline player or image for
 audio, video and pictures. The card links to `/api/outbox/<filename>` as an
 ordinary same-origin URL, so the browser fetches it with the viewer's dashboard
 sign-in and the gateway's own download checks apply. It does not go through
-`useAppApi`, so the app needs no `allowedApiPaths` entry for it.
+`useAppApi`, so the app needs no `allowedApiPaths` entry for it. A `file` row
+draws a card only when its content is a file record: JSON with a non-empty
+string `filename`, plus optional string `content_type` and `description` and
+a number `size`. Any other row draws nothing in the embed; the main chat runs
+the same check and shows such a row's text as a message instead.
 
 A host that can open files or artifacts itself passes `onFileOpen` and
 `onArtifactOpen`. The embed hands both straight to the transcript, as in the
