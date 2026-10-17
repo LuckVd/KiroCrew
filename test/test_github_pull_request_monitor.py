@@ -25,6 +25,7 @@ from kiro_crew.monitoring.github_pull_request import (
     GitHubPullRequestTarget,
     parse_github_pull_request_target,
 )
+from kiro_crew.monitoring.github_pull_request_pages import _pr_comment_page
 from kiro_crew.monitoring.models import (
     DEFAULT_MONITOR_CADENCE_SECS,
     DEFAULT_MONITOR_PROVIDER_ERRORS,
@@ -4536,7 +4537,7 @@ class TestRetentionIsBounded:
                 "nodes": [{"body": "a"}, {"body": self.HUGE}],
             }
         }
-        kept, complete, has_next, _cursor = github_pull_request._pr_comment_page(node)
+        kept, complete, has_next, _cursor = _pr_comment_page(node)
         assert complete is True
         assert has_next is False
         assert len(kept) == 2
@@ -4554,7 +4555,7 @@ class TestRetentionIsBounded:
                 "nodes": [{"body": body}],
             }
         }
-        kept, _complete, _has_next, _cursor = github_pull_request._pr_comment_page(node)
+        kept, _complete, _has_next, _cursor = _pr_comment_page(node)
         assert all(self.MARKER not in entry for entry in kept)
         digest = github_pull_request._pr_comment_body_digest(kept)
         assert self.MARKER not in digest
@@ -4576,7 +4577,7 @@ class TestRetentionIsBounded:
                     "nodes": [{"body": body}],
                 }
             }
-            kept, _c, _h, _cur = github_pull_request._pr_comment_page(node)
+            kept, _c, _h, _cur = _pr_comment_page(node)
             return kept
 
         one = page("no blocking findings")
