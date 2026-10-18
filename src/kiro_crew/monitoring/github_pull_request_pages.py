@@ -76,41 +76,6 @@ def _review_thread_page(
     return unresolved, nodes_complete, has_next, cursor
 
 
-def _pr_comment_page(node: Mapping[str, Any]) -> tuple[list[str], bool, bool, str | None]:
-    """Read one page of a pull request's PR-level (issue) comments.
-
-    Returns a fixed-length FINGERPRINT per readable non-empty body rather than
-    the body itself: the bound is applied here, at the point of retention, so a
-    309-comment pull request carrying megabytes of review prose costs 64
-    characters per comment to watch.
-
-    An EMPTY body contributes nothing, which is what the aggregate digest has
-    always done with it -- doing it here keeps the pull request with no readable
-    prose emitting no condition, and keeps this surface's unit the COMMENT.
-
-    A malformed comment marks the page incomplete so a digest built from a
-    partial read is not trusted, mirroring the thread page reader.
-    """
-    comments = node["comments"]
-    if not isinstance(comments, Mapping):
-        raise ValueError("GitHub pull request comments are malformed")
-    nodes = comments.get("nodes")
-    if not isinstance(nodes, list):
-        raise ValueError("GitHub pull request comments are malformed")
-    fingerprints: list[str] = []
-    nodes_complete = True
-    for comment in nodes:
-        if not isinstance(comment, Mapping) or not isinstance(comment.get("body"), str):
-            nodes_complete = False
-            continue
-        body = comment["body"]
-        if not body:
-            continue
-        fingerprints.append(_body_fingerprint(body))
-    has_next, cursor = _page_cursor(comments.get("pageInfo"))
-    return fingerprints, nodes_complete, has_next, cursor
-
-
 def _pr_comment_activity_page(
     node: Mapping[str, Any],
     pr_author_login: str,
@@ -197,13 +162,30 @@ def _human_activity_fingerprint(
     state: str = "",
 ) -> tuple[str | None, bool]:
     """Fingerprint eligible human activity without retaining provider prose."""
-    if not isinstance(actor, Mapping):
-        return None, False
-    login = actor.get("login")
-    actor_type = actor.get("__typename")
-    if not isinstance(login, str) or not login or not isinstance(actor_type, str) or not actor_type:
-        return None, False
+    login = actor.get("login") if isinstance(actor, Mapping) else ""
+    actor_type = actor.get("__typename") if isinstance(actor, Mapping) else ""
+    if (
+        not isinstance(login, str)
+        or not login
+        or not isinstance(actor_type, str)
+        or not actor_type
+    ):
+        # A deleted (or otherwise unreadable) account is still activity somebody
+        # left on the pull request. Fingerprint it UNATTRIBUTED rather than
+        # failing the whole page: returning incomplete here would blank the
+        # activity digest on every later read, so one deleted account would
+        # silence person wakes for the pull request's lifetime. The fingerprint
+        # stays fixed-width and keyed by an empty login, so a real person's
+        # later comment still moves the digest and wakes.
+        payload = json.dumps(
+            [kind, "", state, _body_fingerprint(body)],
+            ensure_ascii=True,
+            separators=(",", ":"),
+        ).encode("utf-8")
+        return hashlib.sha256(payload).hexdigest(), True
     if not pr_author_login:
+        # The PR author's own login is unreadable, so self-activity cannot be
+        # told from other people's: fail closed for the attributed digests.
         return None, False
     if (
         actor_type != "User"

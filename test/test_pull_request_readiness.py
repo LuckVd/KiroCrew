@@ -262,18 +262,34 @@ def test_common_facts_reject_unknown_provider_and_unbounded_check_states() -> No
         _facts(checks=(PullRequestCheck("build", "provider-native-running"),))
 
 
-def test_excess_passing_checks_are_bounded_without_marking_the_board_incomplete() -> None:
+def test_check_bucket_overflow_is_bounded_without_changing_provider_completeness() -> None:
     long_check = PullRequestCheck("x" * 500, "passed")
     checks = tuple(PullRequestCheck(f"check-{index:03d}", "passed") for index in range(101))
 
-    result = build_pull_request_probe_result(_facts(checks=checks))
+    # The adapter sets the flag when its bounded read cut passing rows; the
+    # projection must carry the cut beside the verdict, not inside it.
+    result = build_pull_request_probe_result(_facts(checks=checks, checks_passed_overflow=True))
 
     assert len(long_check.identity) <= 200
     assert len(result.canonical["checks"]["passed"]) == 100
+    # The passing bucket is cut, and the canonical SAYS so beside the list: the
+    # marker is not a verdict, so completeness stays True and the status stays
+    # success, but a saturated list without the marker would read -- and be
+    # counted -- as the whole list.
+    assert result.canonical["checks_passed_overflow"] is True
     assert result.canonical["checks"]["unknown"] == []
     assert result.canonical["checks_complete"] is True
     assert result.observation.status is MonitorObservationStatus.SUCCESS
     assert result.observation.reason_code == "review_ready"
+
+
+def test_passing_overflow_marker_is_absent_when_the_board_fits() -> None:
+    checks = tuple(PullRequestCheck(f"check-{index:03d}", "passed") for index in range(100))
+
+    result = build_pull_request_probe_result(_facts(checks=checks))
+
+    assert "checks_passed_overflow" not in result.canonical
+    assert result.observation.status is MonitorObservationStatus.SUCCESS
 
 
 def test_duplicate_check_rows_remain_a_complete_provider_result() -> None:

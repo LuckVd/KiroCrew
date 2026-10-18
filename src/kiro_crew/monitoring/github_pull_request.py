@@ -250,6 +250,10 @@ class GitHubPullRequestResponse:
     pr_comment_body_digest: str = ""
     pr_human_comment_digest: str = ""
     pr_human_review_digest: str = ""
+    #: Passing rows beyond the per-bucket cap were cut. Verdict completeness is
+    #: deliberately untouched -- extra passing rows cannot change it -- and the cut
+    #: travels beside it so the canonical and inspection projections can say so.
+    checks_passed_overflow: bool = False
 
 
 @dataclass(frozen=True)
@@ -457,9 +461,11 @@ class GitHubPullRequestProvider:
         )
         for member in live:
             if member.raw in rest_checks:
-                check_rows, checks_complete, checks_error = rest_checks[member.raw]
+                check_rows, checks_complete, checks_error, checks_overflow = rest_checks[
+                    member.raw
+                ]
             else:
-                check_rows, checks_complete, checks_error = checks[member.raw]
+                check_rows, checks_complete, checks_error, checks_overflow = checks[member.raw]
             unresolved, threads_complete, threads_error = (
                 (0, False, None) if member.raw in degraded else threads[member.raw]
             )
@@ -482,6 +488,7 @@ class GitHubPullRequestProvider:
                 pr_comment_body_digest=comment_digests.bodies,
                 pr_human_comment_digest=comment_digests.human_comments,
                 pr_human_review_digest=comment_digests.human_reviews,
+                checks_passed_overflow=checks_overflow,
             )
             results[member.raw] = _build_result(
                 response,
@@ -578,7 +585,7 @@ class GitHubPullRequestProvider:
         host: str,
         members: Sequence[_BatchSubject],
         expected_heads: Mapping[str, str],
-    ) -> dict[str, tuple[tuple[GitHubCheck, ...], bool, ProviderErrorKind | None]]:
+    ) -> dict[str, tuple[tuple[GitHubCheck, ...], bool, bool, ProviderErrorKind | None]]:
         """Read the REST-expressible half of each subject's board, one request each.
 
         Commit statuses ONLY, and that is a measured bound rather than a choice.
@@ -605,7 +612,7 @@ class GitHubPullRequestProvider:
             if not revision:
                 # No revision to pin the read to. The primary facts stand and the
                 # board is reported unread, which classifies as PENDING.
-                resolved[member.raw] = ((), False, None)
+                resolved[member.raw] = ((), False, None, False)
                 continue
             target = member.target
             payload, failure = self._rest(
@@ -625,15 +632,16 @@ class GitHubPullRequestProvider:
                     (),
                     False,
                     failure[0] if failure else ProviderErrorKind.TRANSIENT,
+                    False,
                 )
                 continue
             try:
                 normalized = _normalize_checks(_rest_status_rows(payload))
             except (KeyError, TypeError, ValueError):
-                resolved[member.raw] = ((), False, ProviderErrorKind.TRANSIENT)
+                resolved[member.raw] = ((), False, ProviderErrorKind.TRANSIENT, False)
                 continue
-            bounded, _ = _bounded_checks(normalized)
-            resolved[member.raw] = (bounded, False, None)
+            bounded, _, passed_overflow = _bounded_checks(normalized)
+            resolved[member.raw] = (bounded, False, None, passed_overflow)
         return resolved
 
     def _rest(
@@ -717,7 +725,7 @@ class GitHubPullRequestProvider:
         host: str,
         members: Sequence[_BatchSubject],
         expected_heads: Mapping[str, str],
-    ) -> dict[str, tuple[tuple[GitHubCheck, ...], bool, ProviderErrorKind | None]]:
+    ) -> dict[str, tuple[tuple[GitHubCheck, ...], bool, bool, ProviderErrorKind | None]]:
         """Read every subject's check rollup, bounded in pages rather than rows."""
         rows: dict[str, list[Mapping[str, Any]]] = {member.raw: [] for member in members}
         complete: dict[str, bool] = dict.fromkeys((m.raw for m in members), True)
@@ -789,19 +797,26 @@ class GitHubPullRequestProvider:
             # The page cap was reached with more pages still advertised: the rows
             # so far are real but incomplete, and that is not a provider failure.
             complete[member.raw] = False
-        resolved: dict[str, tuple[tuple[GitHubCheck, ...], bool, ProviderErrorKind | None]] = {}
+        resolved: dict[
+            str, tuple[tuple[GitHubCheck, ...], bool, bool, ProviderErrorKind | None]
+        ] = {}
         for member in members:
             error = errors[member.raw]
             if error is not None:
-                resolved[member.raw] = ((), False, error)
+                resolved[member.raw] = ((), False, error, False)
                 continue
             try:
                 normalized = _normalize_checks(rows[member.raw])
             except (KeyError, TypeError, ValueError):
-                resolved[member.raw] = ((), False, ProviderErrorKind.TRANSIENT)
+                resolved[member.raw] = ((), False, ProviderErrorKind.TRANSIENT, False)
                 continue
-            bounded, buckets_complete = _bounded_checks(normalized)
-            resolved[member.raw] = (bounded, complete[member.raw] and buckets_complete, None)
+            bounded, buckets_complete, passed_overflow = _bounded_checks(normalized)
+            resolved[member.raw] = (
+                bounded,
+                complete[member.raw] and buckets_complete,
+                None,
+                passed_overflow,
+            )
         return resolved
 
     def _review_threads(
@@ -927,11 +942,16 @@ class GitHubPullRequestProvider:
             )
             payload, _group_failure = self._graphql(gh, host, document, argv_tail)
             if payload is None:
+                # A refused round invalidates only the connections it did not
+                # finish. A comments connection that completed in an earlier
+                # round must keep its digest: blanking it here would drop the
+                # bot-edit and human-activity wakes a reviews-only failure has
+                # no evidence against, which is the preservation goal.
                 for member in pending:
-                    comments_complete[member.raw] = False
-                    reviews_complete[member.raw] = False
-                    comments_done[member.raw] = True
-                    reviews_done[member.raw] = True
+                    if not comments_done[member.raw]:
+                        comments_complete[member.raw] = False
+                    if not reviews_done[member.raw]:
+                        reviews_complete[member.raw] = False
                 break
             round_errors = _subject_errors(payload, pending)
             advancing: list[_BatchSubject] = []
@@ -939,10 +959,16 @@ class GitHubPullRequestProvider:
                 raw = member.raw
                 node = _alias_pull_request(payload, index)
                 if node is None or raw in round_errors:
-                    comments_complete[raw] = False
-                    reviews_complete[raw] = False
-                    comments_done[raw] = True
-                    reviews_done[raw] = True
+                    # Same rule as a refused round: only the connection this
+                    # subject never finished is invalidated.
+                    if not comments_done[raw]:
+                        comments_complete[raw] = False
+                        comments_authors_complete[raw] = False
+                        comments_done[raw] = True
+                    if not reviews_done[raw]:
+                        reviews_complete[raw] = False
+                        reviews_authors_complete[raw] = False
+                        reviews_done[raw] = True
                     continue
                 author_login = author_logins.get(raw, "")
                 if not comments_done[raw]:
@@ -1355,14 +1381,27 @@ def _normalize_checks(raw: object) -> tuple[GitHubCheck, ...]:
     return tuple(sorted(normalized, key=lambda item: item.identity))
 
 
-def _bounded_checks(checks: tuple[GitHubCheck, ...]) -> tuple[tuple[GitHubCheck, ...], bool]:
-    """Bound state buckets; only truncated verdict-bearing rows mark incompleteness."""
+def _bounded_checks(
+    checks: tuple[GitHubCheck, ...],
+) -> tuple[tuple[GitHubCheck, ...], bool, bool]:
+    """Bound state buckets; only truncated verdict-bearing rows mark incompleteness.
+
+    Passing overflow is reported SEPARATELY as its own flag rather than folded
+    into completeness: extra passing rows cannot change the verdict, so marking
+    the board incomplete would hold a green board pending on nothing, but the
+    cut must still travel so the canonical and inspection projections can say a
+    saturated ``passed`` list is not the whole list.
+    """
     bounded: list[GitHubCheck] = []
     complete = True
+    passed_overflow = False
     for state in PULL_REQUEST_CHECK_FIELDS:
         matching = [check for check in checks if check.state == state]
-        if state != "passed" and len(matching) > MAX_MONITOR_CHECK_IDENTITIES_PER_BUCKET:
-            complete = False
+        if len(matching) > MAX_MONITOR_CHECK_IDENTITIES_PER_BUCKET:
+            if state == "passed":
+                passed_overflow = True
+            else:
+                complete = False
         bounded.extend(matching[:MAX_MONITOR_CHECK_IDENTITIES_PER_BUCKET])
     # The displaced bucket does NOT report the board incomplete when it grows: a
     # displaced row carries no verdict, so a head that accumulates many of them still
@@ -1371,7 +1410,11 @@ def _bounded_checks(checks: tuple[GitHubCheck, ...]) -> tuple[tuple[GitHubCheck,
     # and cutting it twice would spend the bound before the projection can announce the
     # cut, leaving a saturated list that reads like a whole one.
     bounded.extend(check for check in checks if check.state == PULL_REQUEST_SUPERSEDED_CHECK_FIELD)
-    return tuple(sorted(bounded, key=lambda item: (item.identity, item.state))), complete
+    return (
+        tuple(sorted(bounded, key=lambda item: (item.identity, item.state))),
+        complete,
+        passed_overflow,
+    )
 
 
 def _normalize_check(
@@ -1706,6 +1749,7 @@ def _build_result(
             pr_comment_body_digest=response.pr_comment_body_digest,
             pr_human_comment_digest=response.pr_human_comment_digest,
             pr_human_review_digest=response.pr_human_review_digest,
+            checks_passed_overflow=response.checks_passed_overflow,
         ),
         previous_observation=previous_observation,
         response=response,

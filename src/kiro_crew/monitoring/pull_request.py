@@ -212,6 +212,11 @@ class PullRequestFacts:
     #: Unlike ``pr_comment_body_digest``, these can wake a review-only PENDING watch.
     pr_human_comment_digest: str = ""
     pr_human_review_digest: str = ""
+    #: Passing rows beyond the per-bucket cap were cut. They carry no verdict, so
+    #: this is deliberately NOT ``checks_complete``: the board's completeness is
+    #: untouched, but the canonical says the cut so a saturated list is never
+    #: mistaken for the whole list.
+    checks_passed_overflow: bool = False
 
     def __post_init__(self) -> None:
         if self.kind not in PULL_REQUEST_MONITOR_KINDS:
@@ -250,6 +255,8 @@ class PullRequestFacts:
             raise ValueError("pr_human_comment_digest must be a string")
         if not isinstance(self.pr_human_review_digest, str):
             raise ValueError("pr_human_review_digest must be a string")
+        if not isinstance(self.checks_passed_overflow, bool):
+            raise ValueError("checks_passed_overflow must be a boolean")
 
 
 @dataclass(frozen=True)
@@ -328,8 +335,10 @@ def canonical_pull_request_facts(facts: PullRequestFacts) -> dict[str, object]:
         state: sorted(check.identity for check in facts.checks if check.state == state)
         for state in PULL_REQUEST_CHECK_FIELDS
     }
-    # Extra passing rows are safe to omit: they cannot change the verdict. Failed,
-    # pending and unknown overflow still signals that the bounded board is incomplete.
+    # Extra passing rows are safe to omit from the verdict: they cannot change it.
+    # Failed, pending and unknown overflow still signals that the bounded board is
+    # incomplete, and passing overflow is carried beside the verdict as its own
+    # marker below, so the cut is said out loud either way.
     overflow = not facts.checks_complete or any(
         state != "passed" and len(values) > MAX_MONITOR_CHECK_IDENTITIES_PER_BUCKET
         for state, values in buckets.items()
@@ -397,6 +406,14 @@ def canonical_pull_request_facts(facts: PullRequestFacts) -> dict[str, object]:
         canonical["pr_human_comment_digest"] = facts.pr_human_comment_digest
     if facts.pr_human_review_digest:
         canonical["pr_human_review_digest"] = facts.pr_human_review_digest
+    if facts.checks_passed_overflow:
+        # Present only when the passing bucket was cut, so the canonical shape --
+        # and with it the fingerprint -- is unchanged for every other subject. It
+        # is deliberately NOT ``checks_complete``: extra passing rows cannot
+        # change the verdict, so they must not hold a green board pending, but a
+        # reader that sees a saturated ``passed`` list without this marker would
+        # take it, and the count derived from it, for the whole list.
+        canonical["checks_passed_overflow"] = True
     return canonical
 
 
@@ -549,8 +566,8 @@ def pull_request_conditions(
         and canonical.get("state") == "open"
         and isinstance(canonical.get("head_revision"), str)
         and bool(canonical.get("head_revision"))
-        and canonical.get("review_decision") == "review_required"
         and canonical.get("checks_complete") is True
+        and bool(checks.get("passed"))
         and not checks.get("failed")
         and not checks.get("pending")
         and not checks.get("unknown")
