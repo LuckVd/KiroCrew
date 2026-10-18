@@ -79,7 +79,6 @@ src/kiro_crew/apps/builtins/design_critique/tests/test_manifest.py
 src/kiro_crew/apps/builtins/dev_fleet/gateway_service.py
 src/kiro_crew/apps/builtins/dev_fleet/skills/pod-e2e/scripts/pod-playwright.py
 src/kiro_crew/apps/builtins/issue_radar/backend/crew_routes.py
-src/kiro_crew/apps/builtins/issue_radar/backend/crew_store.py
 src/kiro_crew/apps/builtins/issue_radar/backend/gitlab_client.py
 src/kiro_crew/apps/builtins/issue_radar/backend/provider.py
 src/kiro_crew/apps/builtins/issue_radar/backend/watch.py
@@ -402,7 +401,6 @@ test/test_cron.py
 test/test_cron_acp_retry.py
 test/test_cron_approval_mode.py
 test/test_cron_arbiter_items.py
-test/test_cron_cancel.py
 test/test_cron_context_meter_seed.py
 test/test_cron_count_from_disk.py
 test/test_cron_dedup.py
@@ -537,7 +535,6 @@ test/test_heartbeat_retention.py
 test/test_heartbeat_sel_prune_offload.py
 test/test_history.py
 test/test_history_atomic_rewrite.py
-test/test_history_locking_remediation.py
 test/test_history_race.py
 test/test_hook_matcher_modes.py
 test/test_hooks_json_shared_file.py
@@ -792,7 +789,6 @@ test/test_stop_kill_cancel.py
 test/test_streaming_meta_redaction.py
 test/test_stt_config_atomic.py
 test/test_stt_stream_cov80.py
-test/test_stub_bridge_liveness.py
 test/test_stuck_turn_watchdog.py
 test/test_subagent_cost.py
 test/test_subagent_stall.py
@@ -824,7 +820,6 @@ test/test_turn_duration_hooks.py
 test/test_turn_duration_slack.py
 test/test_turn_duration_task_runner.py
 test/test_turn_duration_workflow.py
-test/test_unattended_slot_guardrails.py
 test/test_update_venv_detection.py
 test/test_use_builtin_browser_config.py
 test/test_user_resolution_fallback.py

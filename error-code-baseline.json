@@ -123,8 +123,20 @@
     "dashboard/chat_voice.py": {
       "missing_code": 3
     },
+    "dashboard/file_api/channel_upload.py": {
+      "missing_code": 3
+    },
     "dashboard/file_api/dashboard_config.py": {
       "missing_code": 9
+    },
+    "dashboard/file_api/desktop.py": {
+      "missing_code": 7
+    },
+    "dashboard/file_api/editor.py": {
+      "missing_code": 12
+    },
+    "dashboard/file_api/outbox.py": {
+      "missing_code": 11
     },
     "dashboard/file_api/pinned_io.py": {
       "missing_code": 6
@@ -165,9 +177,6 @@
     "dashboard/handlers/discover.py": {
       "missing_code": 15
     },
-    "dashboard/handlers/files.py": {
-      "missing_code": 33
-    },
     "dashboard/handlers/kiro_prerequisite.py": {
       "missing_code": 1
     },
@@ -194,8 +203,17 @@
     "dashboard/handlers/optimizer.py": {
       "missing_code": 1
     },
-    "dashboard/handlers/prompts.py": {
-      "missing_code": 27
+    "dashboard/handlers/prompts_authoring.py": {
+      "missing_code": 4
+    },
+    "dashboard/handlers/prompts_skill_catalog.py": {
+      "missing_code": 7
+    },
+    "dashboard/handlers/prompts_skill_edits.py": {
+      "missing_code": 10
+    },
+    "dashboard/handlers/prompts_skill_pending.py": {
+      "missing_code": 6
     },
     "dashboard/handlers/security.py": {
       "missing_code": 16

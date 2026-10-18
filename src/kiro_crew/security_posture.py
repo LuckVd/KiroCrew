@@ -475,7 +475,7 @@ _REDACTION_SINKS: tuple[tuple[str, str, str], ...] = (
     ),
     (
         "Azure DevOps comment bodies",
-        "apps/builtins/issue_radar/backend/azure_client.py",
+        "apps/builtins/issue_radar/backend/azure_client_writes.py",
         "The text Issue Radar posts as a work-item or pull-request comment on Azure "
         "DevOps. A comment body is frequently model-authored -- a crew's reply, or an "
         "AI summary the user accepted -- and publishing it is irreversible: it lands "
@@ -1082,7 +1082,7 @@ _REDACTION_SINKS: tuple[tuple[str, str, str], ...] = (
     ),
     (
         "Telegram rendered-form seal",
-        "telegram/renderer.py",
+        "telegram/renderer_display.py",
         "Every text this channel posts, scanned against the form Telegram RENDERS "
         "rather than the bytes sent. The TurnDriver's stream scan runs before this "
         "renderer introduces any markup, so it cannot see a credential the markup "
@@ -1961,14 +1961,26 @@ NON_EGRESS_REDACTION_MODULES: frozenset[str] = frozenset(
         # ``apps/builtins/aws_control/backend/backup.py`` boundary, which keeps every
         # outbound archive and label PUT. ``egress_text`` defines the redaction sequence
         # the engine applies to exported conversation rows, published and foreign labels
-        # and the recorded nightly failure text; ``nightly`` applies it to that failure
-        # text, which the status route serves (the call-site scan matches its read of the
-        # outbound-redaction switch, ``_unattended_sessions_redaction_gap``);
-        # ``retention`` redacts only its gate-side log lines and SEL audit text. The split
-        # adds no transport or audience and therefore no posture row.
+        # and the recorded nightly failure text; ``conversations`` applies it to each
+        # exported conversation row before the row reaches the archive the facade
+        # uploads; ``nightly`` applies it to that failure text, which the status route
+        # serves (the call-site scan matches its read of the outbound-redaction switch,
+        # ``_unattended_sessions_redaction_gap``); ``retention`` redacts only its
+        # gate-side log lines and SEL audit text. The split adds no transport or audience
+        # and therefore no posture row.
+        "apps/builtins/aws_control/backend/backup_parts/conversations.py",
         "apps/builtins/aws_control/backend/backup_parts/egress_text.py",
         "apps/builtins/aws_control/backend/backup_parts/nightly.py",
         "apps/builtins/aws_control/backend/backup_parts/retention.py",
+        # Internal partitions behind the single registered
+        # ``apps/builtins/aws_control/backend/routes.py`` boundary, the AWS Control HTTP
+        # surface whose routes serve every response. ``routes_parts/common.py`` holds
+        # ``_safe_error``, the one chokepoint every outbound error string goes through,
+        # and ``routes_parts/drive.py`` redacts a preview's head bytes before the preview
+        # route returns them. The split adds no transport or audience and therefore no
+        # posture row.
+        "apps/builtins/aws_control/backend/routes_parts/common.py",
+        "apps/builtins/aws_control/backend/routes_parts/drive.py",
         # The shared recursive redactor helper itself — a pure scrubber, not an
         # egress boundary; the modules that CALL it (mochi routes/hooks) are the
         # registered sinks.
@@ -2252,13 +2264,18 @@ NON_EGRESS_REDACTION_MODULES: frozenset[str] = frozenset(
         "dashboard/session_control_parts/session_create.py",
         # The owners composed into dashboard/chat_runner.py: the redactor calls of the
         # runner's helpers that moved into them (deny rows, file-change snapshots, the MCP
-        # sign-in banner, native cards, tool rows, spec-hook notices, the stats footer),
-        # unchanged. Their output reaches the surfaces it reached from the runner: the
-        # call sites moved, the set of egress paths did not.
+        # sign-in banner, native cards, tool rows, spec-hook notices, the stats footer,
+        # the cross-surface legs, prompt and skill mentions, the segment flush, the
+        # eager-spawn error detail), unchanged. Their output reaches the surfaces it
+        # reached from the runner: the call sites moved, the set of egress paths did not.
         "dashboard/chat_turn/deny_chokepoints.py",
+        "dashboard/chat_turn/eager_spawn.py",
         "dashboard/chat_turn/file_changes.py",
         "dashboard/chat_turn/mcp_session.py",
         "dashboard/chat_turn/native_cards.py",
+        "dashboard/chat_turn/prompt_assembly.py",
+        "dashboard/chat_turn/recipient.py",
+        "dashboard/chat_turn/segment_flush.py",
         "dashboard/chat_turn/tool_rows.py",
         "dashboard/chat_turn/turn_spec_hooks.py",
         "dashboard/chat_turn/turn_stats.py",
@@ -2283,10 +2300,18 @@ NON_EGRESS_REDACTION_MODULES: frozenset[str] = frozenset(
         # the redacted string to chat_utils and emits nothing of its own.
         "dashboard/display_battery.py",
         "dashboard/chat_voice.py",
-        # The content-search engines composed into dashboard/handlers/files.py:
-        # they redact each hit row, and that facade's api_file_grep, a registered
-        # sink module, returns the rows.
+        # The grep route and its content-search engines, composed into
+        # dashboard/handlers/files.py: they redact each hit row, and that facade, a
+        # registered sink module, serves the route that returns the rows.
         "dashboard/file_api/grep.py",
+        # The outbox routes, the Slack and channel uploads with their admission gate,
+        # and the file viewer's read, raw, write and diff routes, composed into
+        # dashboard/handlers/files.py: they redact the file cards, upload gates and
+        # viewer bodies that facade's registered sink rows already name, and open no
+        # output path of their own.
+        "dashboard/file_api/outbox.py",
+        "dashboard/file_api/channel_upload.py",
+        "dashboard/file_api/editor.py",
         # Owner-driven components extracted from dashboard/state.py.  They
         # redact while staging or dispatching through the facade, but they do
         # not introduce new logical egress paths: the same DashboardState
@@ -2356,7 +2381,8 @@ NON_EGRESS_REDACTION_MODULES: frozenset[str] = frozenset(
         "dashboard/handlers/knowledge.py",
         "dashboard/handlers/memory.py",
         "dashboard/handlers/optimizer.py",
-        "dashboard/handlers/prompts.py",
+        "dashboard/handlers/prompts_authoring.py",
+        "dashboard/handlers/prompts_reading.py",
         "dashboard/handlers/taskrunner.py",
         "dashboard/handlers/terminal.py",
         "dashboard/handlers/themes.py",
