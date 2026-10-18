@@ -28,7 +28,7 @@ which restates what a member's DM session carries in its context.
 | `src/kiro_crew/config/loader_agents.py`, `src/kiro_crew/config/loader.py` | `resolve_agent_bindings` (crew to workspace / memory store / template) and `resolve_effective_model` (the default-model precedence) |
 | `src/kiro_crew/mcp_core_parts/crew.py` | `_do_select_crew` — the roster and bind bodies |
 | `src/kiro_crew/mcp_tools/control.py` | The `select_crew` tool declaration and dispatch |
-| `src/kiro_crew/validation.py` | `SELECT_CREW_SCHEMA` — argument validation for that tool |
+| `src/kiro_crew/validation_parts/messaging_session_schemas.py` | `SELECT_CREW_SCHEMA` — argument validation for that tool (imported through `kiro_crew.validation`) |
 | `src/kiro_crew/members.py` | Per-crew member space: activity log, DM-thread binding, permanent rules, self-maintained briefing, the member turn chokepoint |
 | `src/kiro_crew/subagent_parts/agent_policy.py` | `_validate_agent` — what an `agent=` name is checked against, and `UNADVERTISED_AGENTS` (both read and patched through `kiro_crew.subagent`) |
 | `src/kiro_crew/dashboard/handlers/agents.py` | The agents handlers' import and patch surface: `GET /api/agents`, the model picker reads and the crew model-pin checks, composed with the `agent_admin` owners below |
@@ -1530,15 +1530,10 @@ does not migrate it or grant access to that member's member store.
 session on a crew starts with, highest tier first: the crew's own `model`, the
 bound kiro agent's pinned model (skipped for the built-in `kirocrew` agent), the
 global `agent.model`, then the installed agent file's model. A per-session pick
-outranks all four and is not considered there. A bound template whose `model` is
-`auto` is NOT treated alike everywhere. The chip (`resolve_effective_model`)
-collapses it through `normalize_agent_model` and shows the global. The session
-layer (`session._session_model` -> `_model_fallback`) defers to the provider for
-ANY nonempty template value, `auto` included, so it returns `None`. The factory
-(`acp_effective_model`) then reads the template pin, collapses `auto` to `""`, and
-sends no model, which leaves kiro-cli's own resolution in charge rather than the
-global. That precedence is unchanged for ordinary named templates. No template
-follows the global default through these resolvers.
+outranks all four and is not considered there. The session layer
+(`session._session_model`, run by `get_or_create` for a caller that names no model)
+answers through the same function, so a bound template whose `model` is `auto`
+inherits the global on the chip and in the session alike.
 
 The loader is defensive about hand-edited config: a non-string `model` or
 `triggers` collapses to `""`, an unknown `reasoning_effort` collapses to inherit,
