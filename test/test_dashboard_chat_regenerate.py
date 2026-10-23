@@ -124,6 +124,31 @@ class TestRegenerateAndVariants:
         assert slot.messages[-1]["meta"] == {"other": "preserved"}
 
     @pytest.mark.asyncio
+    async def test_switch_away_from_legacy_newest_variant_keeps_its_stats(
+        self, tmp_path, monkeypatch
+    ):
+        monkeypatch.setattr("kiro_crew.dashboard.state.config_dir", lambda: tmp_path)
+        state = _make_state(tmp_path)
+        slot = state.get_or_create_slot("s1")
+        slot.append("user", "hi")
+        slot.append("assistant", "v2")
+        row = slot.messages[-1]
+        row["meta"] = {"turn_stats": {"model": "latest", "credits": 0.5}}
+        row["variants"] = [
+            {"content": "v1", "ts": "t1"},
+            {"content": "v2", "ts": "t2"},
+        ]
+        row["variant_idx"] = 1
+        async with TestClient(TestServer(_make_app(state))) as client:
+            resp = await client.post("/api/chat/slots/s1/switch-variant", json={"index": 0})
+            assert resp.status == 200
+            assert "turn_stats" not in row.get("meta", {})
+            resp = await client.post("/api/chat/slots/s1/switch-variant", json={"index": 1})
+            assert resp.status == 200
+        assert row["meta"]["turn_stats"] == {"model": "latest", "credits": 0.5}
+        assert "turn_stats" not in row["variants"][0]
+
+    @pytest.mark.asyncio
     async def test_switch_variant_index_out_of_range(self, tmp_path, monkeypatch):
         monkeypatch.setattr("kiro_crew.dashboard.state.config_dir", lambda: tmp_path)
         state = _make_state(tmp_path)
