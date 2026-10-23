@@ -1,7 +1,7 @@
 import { openActivityToTab, restoreSideConversation, setAgentSwitchNotice, sideSendStatus } from '../../store/chatSlice'
 import { api } from '../../api/client'
 import { i18nT } from '../../i18n/t'
-import { sendTurn } from '../../chat-core/transport/sendTurn'
+import { sendTurn, SEND_ABORT_MS } from '../../chat-core/transport/sendTurn'
 import { deliveryUnconfirmedCopy } from '../../chat-core/transport/receiptCopy'
 import { sideTurnWire } from './sideTurnWire'
 import type { AppDispatch } from '../../store'
@@ -150,15 +150,26 @@ export async function interceptSlashCommand(
   // drawn yet, and the question joins it. Read it first, as the panel does; a read
   // that fails holds the question back, so it is not sent into a conversation the
   // panel cannot show. The command stays in the composer.
+  const restoreTimedOut = Symbol('sideRestoreTimeout')
+  let timeoutId: ReturnType<typeof setTimeout> | undefined
   try {
-    await dispatch(restoreSideConversation(slot)).unwrap()
+    await Promise.race([
+      dispatch(restoreSideConversation(slot)).unwrap(),
+      new Promise<never>((_, reject) => {
+        timeoutId = setTimeout(() => reject(restoreTimedOut), SEND_ABORT_MS)
+      }),
+    ])
   } catch (e: unknown) {
-    // eslint-disable-next-line no-console
-    console.warn('[/side] side restore failed:', e)
+    if (e !== restoreTimedOut) {
+      // eslint-disable-next-line no-console
+      console.warn('[/side] side restore failed:', e)
+    }
     // Not the panel's `restore_failed`: that notice tells the reader to press
     // Retry, and there is no Retry here. Nothing opened, so this reports in the
     // composer's own terms, where the command is what stayed behind.
     return { intercepted: true, failed: true, error: i18nT('pages.chat.sideChat.restore_failed_command'), stage: 'open' }
+  } finally {
+    if (timeoutId !== undefined) clearTimeout(timeoutId)
   }
   if (opts.openSide) {
     if ((await opts.openSide()) === false) return { intercepted: true, failed: true, stage: 'open' }

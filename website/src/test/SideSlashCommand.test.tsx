@@ -1,4 +1,4 @@
-import { describe, it, expect, vi, beforeEach } from 'vitest'
+import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
 import { createTestStore } from './helpers'
 
 const { mockSideOpen, mockSideTurn, mockSendChat, mockSideState } = vi.hoisted(() => ({
@@ -20,6 +20,7 @@ vi.mock('../api/client', () => ({
 
 import { interceptSlashCommand } from '../pages/chat/ChatInput'
 import { ApiError, AcceptedBodyUnreadable } from '../api/apiError'
+import { SEND_ABORT_MS } from '../chat-core/transport/sendTurn'
 
 const SLOT = 'test-slot-1'
 
@@ -29,6 +30,10 @@ describe('/side slash command interception', () => {
   beforeEach(() => {
     store = createTestStore()
     vi.clearAllMocks()
+  })
+
+  afterEach(() => {
+    vi.useRealTimers()
   })
 
   it('intercepts "/side" — opens side, switches activity tab, no sendChat', async () => {
@@ -142,6 +147,27 @@ describe('/side slash command interception', () => {
     mockSideOpen.mockRejectedValueOnce(new Error('boom'))
     const result = await interceptSlashCommand('/side', SLOT, store.dispatch)
     expect(result).toEqual({ intercepted: true, failed: true, error: 'boom', stage: 'open' })
+  })
+
+  it('reports a stalled side-conversation read and keeps the command recoverable', async () => {
+    vi.useFakeTimers()
+    let resolveSideState!: (state: { open: boolean }) => void
+    mockSideState.mockImplementationOnce(() => new Promise(resolve => { resolveSideState = resolve }))
+    let result: Awaited<ReturnType<typeof interceptSlashCommand>> | undefined
+    const pending = interceptSlashCommand('/side hello', SLOT, store.dispatch).then(value => { result = value })
+
+    try {
+      await vi.advanceTimersByTimeAsync(SEND_ABORT_MS)
+
+      expect(mockSideState).toHaveBeenCalledWith(SLOT)
+      expect(result).toMatchObject({ intercepted: true, failed: true, stage: 'open' })
+      expect(result?.intercepted && result.error).toMatch(/the command was not run\. Your message is still in the composer\./)
+      expect(mockSideTurn).not.toHaveBeenCalled()
+      expect(store.getState().chat.activityTab).not.toBe('side')
+    } finally {
+      resolveSideState({ open: false })
+      await pending
+    }
   })
 
   it('a 2xx whose body was unreadable is UNCONFIRMED: the composer is kept, no error is reported, and the side panel stands its notice', async () => {
