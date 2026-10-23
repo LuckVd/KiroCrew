@@ -188,12 +188,27 @@ class TestAnotherProcessCannotTakeAHeldPort:
 
     def test_release_frees_it_for_a_legitimate_reconnect(self, guard):
         """The crew comes back and needs a port to bind: our own hold must not be what
-        refuses it."""
+        refuses it. release() closes the held socket synchronously, so that is
+        assertable the moment it returns -- no retry can stand in for it. The external
+        probe afterwards only rules out anything ELSE keeping the port, and its wait
+        tolerates a short-lived competing bind, which is contention, not a late
+        release of ours."""
         port = _hold_a_port(guard, time.time() + 300)
         assert _bind_from_another_process(port).startswith("REFUSED")
 
+        # Capture the held socket BEFORE release: the invariant is on the object
+        # release() closes, not on the port number, which another process can
+        # grab the instant the close lands.
+        with guard._lock:
+            sock = guard._held[port][0]
+
         guard.release(port)
 
+        assert sock.fileno() == -1, "release() returned with the held socket still open"
+        assert guard.held_ports() == set()
+
+        # Containment check only; the synchronous close above is the release
+        # invariant, so this bounded wait weakens nothing.
         _wait_for_bind_from_another_process(port)
 
     def test_a_repeated_failure_does_not_re_log_at_error(self, guard, caplog):
