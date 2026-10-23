@@ -10,17 +10,24 @@ import tempfile
 import unittest
 from pathlib import Path, PurePosixPath, PureWindowsPath
 
+import pytest
 import yaml
 
 from scripts.ci_file_shards import file_shard
 
 ROOT = Path(__file__).resolve().parents[1]
 _DEFAULT_SUBPROCESS_TIMEOUT_SECONDS = 45
-_WINDOWS_BACKEND_SCOPE_TIMEOUT_SECONDS = 120
+# The slowest prior Windows (7) artifact measured this test's call at 42.251775s
+# (PR #23257, run 39911553168, windows-pytest-progress-7); 10x is 422.51775s,
+# rounded up to 425s. Another artifact measured 21.584452s (PR #23293,
+# run 39912227098, windows-pytest-progress-7).
+_WINDOWS_BACKEND_SCOPE_TIMEOUT_SECONDS = 425
+# Keep a readable subprocess timeout failure before pytest can kill the worker.
+pytestmark = pytest.mark.timeout(2 * _WINDOWS_BACKEND_SCOPE_TIMEOUT_SECONDS)
 
 
 def _backend_scope_timeout_seconds(*, windows: bool) -> int:
-    """Leave Windows scans 60s under the shard's 180s per-test timeout."""
+    """Bound Windows scans from the measured shard time; others keep 45s."""
     return (
         _WINDOWS_BACKEND_SCOPE_TIMEOUT_SECONDS if windows else _DEFAULT_SUBPROCESS_TIMEOUT_SECONDS
     )
