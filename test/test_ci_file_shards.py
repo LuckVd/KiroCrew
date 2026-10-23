@@ -15,6 +15,15 @@ import yaml
 from scripts.ci_file_shards import file_shard
 
 ROOT = Path(__file__).resolve().parents[1]
+_DEFAULT_SUBPROCESS_TIMEOUT_SECONDS = 45
+_WINDOWS_BACKEND_SCOPE_TIMEOUT_SECONDS = 120
+
+
+def _backend_scope_timeout_seconds(*, windows: bool) -> int:
+    """Leave Windows scans 60s under the shard's 180s per-test timeout."""
+    return (
+        _WINDOWS_BACKEND_SCOPE_TIMEOUT_SECONDS if windows else _DEFAULT_SUBPROCESS_TIMEOUT_SECONDS
+    )
 
 
 class TestFileShards(unittest.TestCase):
@@ -40,7 +49,7 @@ class TestFileShards(unittest.TestCase):
         path.write_text(content, encoding="utf-8")
         return path
 
-    def run_python(self, *extra):
+    def run_python(self, *extra, timeout=_DEFAULT_SUBPROCESS_TIMEOUT_SECONDS):
         env = dict(os.environ)
         env.pop("PYTEST_ADDOPTS", None)
         env.pop("PYTEST_PLUGINS", None)
@@ -60,7 +69,7 @@ class TestFileShards(unittest.TestCase):
             capture_output=True,
             text=True,
             encoding="utf-8",
-            timeout=45,
+            timeout=timeout,
         )
 
     def run_pytest(self, *extra):
@@ -137,8 +146,19 @@ class TestFileShards(unittest.TestCase):
         self.assertCountEqual(all_files, {item.split("::")[0] for item in baseline})
         self.assertEqual(len(all_files), 26)
 
+    def test_reduced_backend_scope_timeout_accounts_for_windows(self):
+        self.assertEqual(
+            _backend_scope_timeout_seconds(windows=False), _DEFAULT_SUBPROCESS_TIMEOUT_SECONDS
+        )
+        self.assertEqual(
+            _backend_scope_timeout_seconds(windows=True), _WINDOWS_BACKEND_SCOPE_TIMEOUT_SECONDS
+        )
+
     def test_reduced_backend_scope_populates_every_ci_shard(self):
-        result = self.run_python(str(ROOT / "scripts/ci-surface-tests.py"), "--surface", "backend")
+        timeout = _backend_scope_timeout_seconds(windows=os.name == "nt")
+        result = self.run_python(
+            str(ROOT / "scripts/ci-surface-tests.py"), "--surface", "backend", timeout=timeout
+        )
         self.assert_ok(result)
         files = result.stdout.splitlines()
         self.assertTrue(files)
