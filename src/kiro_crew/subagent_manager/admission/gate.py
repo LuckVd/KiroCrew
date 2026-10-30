@@ -108,7 +108,7 @@ class _GateMixin(ManagerComponent):
         _claimed: "tuple[int, bool, str] | None" = None,
         _window_hint: "bool | None" = None,
         _child_registration: bool = True,
-        _crew_log_asked: "tuple[str, int] | None" = None,
+        _crew_log_asked: "tuple[str, int, int] | None" = None,
         _memory_mode: str | None = None,
         *,
         crew: str = "",
@@ -518,6 +518,16 @@ class _GateMixin(ManagerComponent):
         # store, so a refused spawn leaves no row; from here on the row exists
         # and every later exit either starts it, defers it, or marks it failed.
         # A drained spawn (_from_queue) already has its row. ---
+        # The asking unit, turn and attempt, read once on the first pass and carried
+        # on the row below, so a durable replay after a restart pins the unit that
+        # asked rather than the parent's post-restart one.
+        if _crew_log_asked is None and not _from_queue:
+            # Imported here: this body runs on the facade's globals.
+            from kiro_crew.subagent_manager.admission.gate_reporting import (
+                crew_log_asking_origin,
+            )
+
+            _crew_log_asked = crew_log_asking_origin(self._manager._sessions, parent_session_key)
         queue_params: dict = {
             "task": task,
             "parent_session_key": parent_session_key,
@@ -1497,11 +1507,14 @@ class _GateMixin(ManagerComponent):
             and self._manager._sessions.get_approval_policy(parent_session_key) == "auto"
         )
 
+        # Shared Crew: each run's runtime starts in its initiator's containment slice.
+        from kiro_crew.shared_crew.containment import start_run_task as _start_run_task
+
         if self._manager._is_yolo and self._manager._is_yolo():
-            self._manager._tasks[agent_id] = asyncio.create_task(self._manager._run(info))
+            self._manager._tasks[agent_id] = _start_run_task(self._manager._run(info), info)
             self._manager._log_spawned(info)
         elif approval_mode == "auto":
-            self._manager._tasks[agent_id] = asyncio.create_task(self._manager._run(info))
+            self._manager._tasks[agent_id] = _start_run_task(self._manager._run(info), info)
             self._manager._log_spawned(info)
             sel().log_tool_invocation(
                 session_key=info.parent_session_key,
@@ -1511,7 +1524,7 @@ class _GateMixin(ManagerComponent):
                 metadata={"subagent_id": agent_id, "reason": "approval_mode_auto"},
             )
         elif parent_trusted:
-            self._manager._tasks[agent_id] = asyncio.create_task(self._manager._run(info))
+            self._manager._tasks[agent_id] = _start_run_task(self._manager._run(info), info)
             self._manager._log_spawned(info)
             sel().log_tool_invocation(
                 session_key=info.parent_session_key,
@@ -1522,7 +1535,7 @@ class _GateMixin(ManagerComponent):
             )
         elif self._manager._ctx_builder and self._manager._ctx_builder.hooks:
             if self._manager._ctx_builder.hooks.auto_approve_subagent_spawn is True:
-                self._manager._tasks[agent_id] = asyncio.create_task(self._manager._run(info))
+                self._manager._tasks[agent_id] = _start_run_task(self._manager._run(info), info)
                 self._manager._log_spawned(info)
                 sel().log_tool_invocation(
                     session_key=info.parent_session_key,
